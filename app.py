@@ -61,7 +61,29 @@ if st.session_state.simulation_done:
 
     # Snapshot selection
     t_idx = st.slider("Select temperature snapshot to visualize", 0, len(T_list)-1, 0)
-    fig2 = generate_arrow_plot(spin_configs[t_idx], T_list[t_idx])
+    snapshot = spin_configs[t_idx]
+    T = T_list[t_idx]
+    Lx, Ly = snapshot.shape
+
+    # Create arrow plot using text() with color
+    fig2, ax = plt.subplots(figsize=(6, 6))
+    ax.set_xlim(0, Ly+1)
+    ax.set_ylim(0, Lx+1)
+    ax.set_aspect('equal')
+    ax.axis('off')
+
+    up_count = 0
+    down_count = 0
+    for x in range(Ly):
+        for y in range(Lx):
+            if snapshot[y, x] == 1:
+                ax.text(x+1, Lx-y, '\u2191', ha='center', va='center', fontsize=14, color='red')
+                up_count += 1
+            else:
+                ax.text(x+1, Lx-y, '\u2193', ha='center', va='center', fontsize=14, color='blue')
+                down_count += 1
+
+    ax.set_title(f'T = {T:.3f} | ↑: {up_count}, ↓: {down_count}', fontsize=14)
     st.pyplot(fig2)
 
     # Download button
