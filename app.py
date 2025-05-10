@@ -38,11 +38,12 @@ with st.sidebar:
     Tmin = st.number_input("最低温度 Tmin", min_value=0.1, value=1.0, step=0.1)
     Tmax = st.number_input("最高温度 Tmax", min_value=0.1, value=3.5, step=0.1)
     run_button = st.button("开始模拟")
+
     if st.button("清空缓存并重置"):
-    if os.path.exists(tmpdir):
-        shutil.rmtree(tmpdir)
-    st.session_state.clear()
-    st.success("缓存已清除，请手动刷新页面或重新开始模拟。")
+        if os.path.exists(tmpdir):
+            shutil.rmtree(tmpdir)
+        st.session_state.clear()
+        st.success("缓存已清除，请手动刷新页面或重新开始模拟。")
 
 @st.cache_data(show_spinner=False)
 def simulate_and_generate(L, lattice, Ntrial, Tmin, Tmax, nT, tmpdir):
