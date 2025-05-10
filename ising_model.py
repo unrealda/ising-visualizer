@@ -31,31 +31,30 @@ def build_neighbors(L, lattice_type="square"):
             else:
                 raise ValueError("Invalid lattice type")
             neighbors[idx] = nbrs
-    return neighbors
+    return np.array(neighbors, dtype=object)
 
 
 def wolff_update(spins, neighbors, beta, H=0.0):
     N = len(spins)
     visited = np.zeros(N, dtype=bool)
     seed = random.randint(0, N - 1)
+    cluster_spin = spins[seed]
+
+    p_add = 1 - np.exp(-2 * beta * (1 + H * cluster_spin))
     cluster = [seed]
-    pocket = [seed]
+    stack = [seed]
     visited[seed] = True
-    spin_value = spins[seed]
 
-    p_add = lambda s_neighbor: (spins[s_neighbor] == spin_value and not visited[s_neighbor] and
-                                random.random() < 1 - np.exp(-2 * beta * (1 + H * spin_value)))
-
-    while pocket:
-        current = pocket.pop()
+    while stack:
+        current = stack.pop()
         for nbr in neighbors[current]:
-            if p_add(nbr):
-                visited[nbr] = True
-                pocket.append(nbr)
-                cluster.append(nbr)
+            if not visited[nbr] and spins[nbr] == cluster_spin:
+                if random.random() < p_add:
+                    visited[nbr] = True
+                    cluster.append(nbr)
+                    stack.append(nbr)
 
-    for idx in cluster:
-        spins[idx] *= -1
+    spins[visited] *= -1
     return spins, len(cluster), np.sum(spins)
 
 
@@ -68,17 +67,17 @@ def run_temperature_scan(L, lattice_type, Ntrial, Tmin, Tmax, nT):
     for T in T_list:
         beta = 1.0 / T
         spins = np.random.choice([-1, 1], size=N)
-        magnetizations = []
-        cluster_sizes = []
+        magnetizations = np.zeros(Ntrial)
+        cluster_sizes = np.zeros(Ntrial)
 
-        for _ in range(Ntrial):
+        for i in range(Ntrial):
             spins, clust_size, mag = wolff_update(spins, neighbors, beta)
-            magnetizations.append(mag)
-            cluster_sizes.append(clust_size)
+            magnetizations[i] = mag
+            cluster_sizes[i] = clust_size
 
         M = np.mean(np.abs(magnetizations)) / N
-        M2 = np.mean(np.array(magnetizations)**2) / N**2
-        Mvar = np.var(np.array(magnetizations) / N) / N
+        M2 = np.mean(magnetizations ** 2) / N**2
+        Mvar = np.var(magnetizations / N) / N
         chi = (N / T) * (M2 - M**2)
 
         results.append({
@@ -97,15 +96,11 @@ def run_hysteresis(L, lattice_type, T_list, Ntrial=100):
     N = L * L
     neighbors = build_neighbors(L, lattice_type)
     hysteresis_data = []
-    final_T_spins = None
 
     for T in T_list:
         beta = 1 / T
-        if abs(T - T_list[-1]) < 1e-8:
-            record_final = True
-            final_gif_frames = []
-        else:
-            record_final = False
+        record_final = abs(T - T_list[-1]) < 1e-8
+        final_gif_frames = []
 
         if abs(T - T_list[np.argmax(T_list)]) < 0.3:
             H_vals = list(np.arange(-1, 1.05, 0.05)) + list(np.arange(0.95, -1.05, -0.05))
