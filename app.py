@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 import os
 from io import BytesIO
 from ising_model import run_temperature_scan, run_hysteresis
-from visualizer import generate_arrow_plotfrom visualizer import generate_arrow_plotfrom visualizer import (
+from visualizer import (
     plot_magnetization_vs_temp,
     save_all_spin_snapshots,
     save_all_hysteresis_loops,
