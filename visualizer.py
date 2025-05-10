@@ -21,11 +21,10 @@ def plot_magnetization_vs_temp(results, save_path=None):
     ax2.set_ylabel('Susceptibility $\chi$', color='red')
     ax1.grid(True)
 
-    # Highlight peak
     chi_peak = max(Chi)
     idx_peak = Chi.index(chi_peak)
     ax2.plot(T_list[idx_peak], chi_peak, 'kp', markerfacecolor='green')
-    ax2.text(T_list[idx_peak]+0.1, chi_peak, f'Peak at T = {T_list[idx_peak]:.2f}', color='green')
+    ax2.text(T_list[idx_peak] + 0.1, chi_peak, f'Peak at T = {T_list[idx_peak]:.2f}', color='green')
 
     plt.title("Magnetization and Susceptibility vs Temperature")
     fig = plt.gcf()
@@ -35,22 +34,12 @@ def plot_magnetization_vs_temp(results, save_path=None):
 
 
 def plot_spin_snapshot(spin_matrix, T, save_path=None):
-    L = spin_matrix.shape[0]
+    cmap = plt.get_cmap('bwr')
     fig, ax = plt.subplots(figsize=(5, 5))
-    ax.set_title(f"Spin Configuration at T = {T:.2f}")
+    ax.imshow(spin_matrix, cmap=cmap, vmin=-1, vmax=1)
     ax.set_xticks([])
     ax.set_yticks([])
-    ax.set_aspect('equal')
-
-    for i in range(L):
-        for j in range(L):
-            s = spin_matrix[i, j]
-            arrow = '\u2191' if s == 1 else '\u2193'
-            color = 'red' if s == 1 else 'blue'
-            ax.text(j, L - i - 1, arrow, ha='center', va='center', fontsize=12, color=color)
-
-    ax.set_xlim(-1, L)
-    ax.set_ylim(-1, L)
+    ax.set_title(f"Spin Configuration at T = {T:.2f}")
     if save_path:
         fig.savefig(save_path, bbox_inches='tight')
     plt.close(fig)
@@ -65,7 +54,6 @@ def plot_hysteresis_loop(H_vals, M_vals, T, save_path=None):
     ax.grid(True)
     ax.set_xlim([-1.1, 1.1])
     ax.set_ylim([-1.1, 1.1])
-
     if save_path:
         fig.savefig(save_path, bbox_inches='tight')
     plt.close(fig)
