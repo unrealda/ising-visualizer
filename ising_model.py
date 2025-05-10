@@ -1,122 +1,133 @@
 import numpy as np
-import matplotlib.pyplot as plt
-import imageio
-import os
+import random
 
-def get_neighbors(index, L):
-    row = index // L
-    col = index % L
-    neighbors = [
-        ((row - 1) % L) * L + col,  # 上
-        ((row + 1) % L) * L + col,  # 下
-        row * L + (col - 1) % L,    # 左
-        row * L + (col + 1) % L     # 右
-    ]
+
+def build_neighbors(L, lattice_type="square"):
+    N = L * L
+    neighbors = [[] for _ in range(N)]
+
+    def index(row, col):
+        return (row % L) * L + (col % L)
+
+    for i in range(L):
+        for j in range(L):
+            idx = i * L + j
+            if lattice_type == "square":
+                nbrs = [
+                    index(i, j + 1),
+                    index(i + 1, j),
+                    index(i, j - 1),
+                    index(i - 1, j),
+                ]
+            elif lattice_type == "triangular":
+                nbrs = [
+                    index(i, j + 1),
+                    index(i + 1, j),
+                    index(i, j - 1),
+                    index(i - 1, j),
+                    index(i + 1, j - 1),
+                    index(i - 1, j + 1),
+                ]
+            else:
+                raise ValueError("Invalid lattice type")
+            neighbors[idx] = nbrs
     return neighbors
 
-def run_ising_simulation(L, Tmin, Tmax, nT, Ntrial, folder):
+
+def wolff_update(spins, neighbors, beta, H=0.0):
+    N = len(spins)
+    visited = np.zeros(N, dtype=bool)
+    seed = random.randint(0, N - 1)
+    cluster = [seed]
+    pocket = [seed]
+    visited[seed] = True
+    spin_value = spins[seed]
+
+    p_add = lambda s_neighbor: (spins[s_neighbor] == spin_value and not visited[s_neighbor] and
+                                random.random() < 1 - np.exp(-2 * beta * (1 + H * spin_value)))
+
+    while pocket:
+        current = pocket.pop()
+        for nbr in neighbors[current]:
+            if p_add(nbr):
+                visited[nbr] = True
+                pocket.append(nbr)
+                cluster.append(nbr)
+
+    for idx in cluster:
+        spins[idx] *= -1
+    return spins, len(cluster), np.sum(spins)
+
+
+def run_temperature_scan(L, lattice_type, Ntrial, Tmin, Tmax, nT):
     N = L * L
+    neighbors = build_neighbors(L, lattice_type)
     T_list = np.linspace(Tmin, Tmax, nT)
-    M_list = []
-    Chi_list = []
-    spin_snapshots = []
+    results = []
 
     for T in T_list:
         beta = 1.0 / T
-        p = 1 - np.exp(-2 * beta)
-        S = np.random.choice([-1, 1], size=N)
-
+        spins = np.random.choice([-1, 1], size=N)
         magnetizations = []
+        cluster_sizes = []
 
         for _ in range(Ntrial):
-            k = np.random.randint(N)
-            cluster = [k]
-            pocket = [k]
+            spins, clust_size, mag = wolff_update(spins, neighbors, beta)
+            magnetizations.append(mag)
+            cluster_sizes.append(clust_size)
 
-            while pocket:
-                s = pocket.pop(np.random.randint(len(pocket)))
-                neighbors = get_neighbors(s, L)
-                for n in neighbors:
-                    if S[n] == S[s] and n not in cluster:
-                        if np.random.rand() < p:
-                            cluster.append(n)
-                            pocket.append(n)
+        M = np.mean(np.abs(magnetizations)) / N
+        M2 = np.mean(np.array(magnetizations)**2) / N**2
+        Mvar = np.var(np.array(magnetizations) / N) / N
+        chi = (N / T) * (M2 - M**2)
 
-            for site in cluster:
-                S[site] *= -1
+        results.append({
+            'T': T,
+            'M': M,
+            'Mvar': Mvar,
+            'chi': chi,
+            'mean_cluster_size': np.mean(cluster_sizes),
+            'spins_snapshot': spins.copy().reshape((L, L))
+        })
 
-            magnetizations.append(np.sum(S))
+    return results
 
-        M_avg = np.mean(np.abs(magnetizations)) / N
-        M2_avg = np.mean(np.array(magnetizations) ** 2) / (N ** 2)
-        Chi = (N / T) * (M2_avg - M_avg ** 2)
 
-        M_list.append(M_avg)
-        Chi_list.append(Chi)
-
-        S2D = S.reshape((L, L))
-        spin_snapshots.append(S2D)
-
-        np.savetxt(f"{folder}/snapshot_T{T:.3f}.dat", S2D, fmt='%d')
-
-    return T_list, spin_snapshots, M_list, Chi_list
-
-def run_hysteresis_simulation(L, Tmin, Tmax, nT, Ntrial, folder):
+def run_hysteresis(L, lattice_type, T_list, Ntrial=100):
     N = L * L
-    T_list = np.linspace(Tmin, Tmax, nT)
-    final_T = T_list[-1]
-    beta = 1.0 / final_T
-    p = 1 - np.exp(-2 * beta)
+    neighbors = build_neighbors(L, lattice_type)
+    hysteresis_data = []
+    final_T_spins = None
 
-    field_range = np.linspace(-1.0, 1.0, 30)
-    magnetization_list = []
+    for T in T_list:
+        beta = 1 / T
+        if abs(T - T_list[-1]) < 1e-8:
+            record_final = True
+            final_gif_frames = []
+        else:
+            record_final = False
 
-    S = np.random.choice([-1, 1], size=N)
-    snapshots = []
+        if abs(T - T_list[np.argmax(T_list)]) < 0.3:
+            H_vals = list(np.arange(-1, 1.05, 0.05)) + list(np.arange(0.95, -1.05, -0.05))
+        else:
+            H_vals = list(np.arange(-1, 1.2, 0.2)) + list(np.arange(0.8, -1.2, -0.2))
 
-    for H in np.concatenate([field_range, field_range[::-1]]):
-        magnetizations = []
+        spins = np.ones(N, dtype=int)
+        M_H = []
 
-        for _ in range(Ntrial):
-            k = np.random.randint(N)
-            cluster = [k]
-            pocket = [k]
+        for H in H_vals:
+            for _ in range(Ntrial):
+                spins, _, _ = wolff_update(spins, neighbors, beta, H)
+            M_H.append(np.sum(spins) / N)
 
-            while pocket:
-                s = pocket.pop(np.random.randint(len(pocket)))
-                neighbors = get_neighbors(s, L)
-                for n in neighbors:
-                    if S[n] == S[s] and n not in cluster:
-                        if np.random.rand() < p:
-                            cluster.append(n)
-                            pocket.append(n)
+            if record_final:
+                final_gif_frames.append(spins.copy().reshape((L, L)))
 
-            for site in cluster:
-                S[site] *= -1
+        hysteresis_data.append({
+            'T': T,
+            'H_vals': H_vals,
+            'M_vals': M_H,
+            'final_frames': final_gif_frames if record_final else None
+        })
 
-            magnetizations.append(np.sum(S))
-
-        M_avg = np.mean(magnetizations) / N
-        magnetization_list.append((H, M_avg))
-
-        S2D = S.reshape((L, L))
-        snapshots.append(S2D.copy())
-
-    # 生成 GIF
-    gif_path = os.path.join(folder, "hysteresis.gif")
-    images = []
-
-    for snap in snapshots:
-        fig, ax = plt.subplots(figsize=(4, 4))
-        ax.imshow(snap, cmap='bwr', vmin=-1, vmax=1)
-        ax.set_xticks([])
-        ax.set_yticks([])
-        plt.tight_layout()
-
-        buf = os.path.join(folder, "temp.png")
-        fig.savefig(buf)
-        images.append(imageio.v2.imread(buf))
-        plt.close(fig)
-
-    imageio.mimsave(gif_path, images, duration=0.2)
-    return gif_path
+    return hysteresis_data
