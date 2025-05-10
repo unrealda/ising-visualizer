@@ -1,8 +1,7 @@
 import streamlit as st
-import numpy as np
-import matplotlib.pyplot as plt
+import tempfile
+import shutil
 import os
-from io import BytesIO
 from ising_model import run_temperature_scan, run_hysteresis
 from visualizer import (
     plot_magnetization_vs_temp,
@@ -10,76 +9,64 @@ from visualizer import (
     save_all_hysteresis_loops,
     save_final_hysteresis_snapshots
 )
+from zipfile import ZipFile
 
-st.set_page_config(layout="wide")
-st.title("2D Ising Model Visualizer - Wolff Algorithm")
+st.set_page_config(page_title="Ising Model (Wolff Algorithm)", layout="wide")
+st.title("\U0001F9BE Wolff 算法模拟二维伊辛模型")
 
-if 'simulation_done' not in st.session_state:
-    st.session_state.simulation_done = False
+with st.sidebar:
+    st.header("参数设置")
+    L = st.number_input("格子边长 L", min_value=4, max_value=128, value=10)
+    lattice = st.selectbox("晶格类型", ["square", "triangular"])
+    Ntrial = st.number_input("每温度试验次数", min_value=10, max_value=1000, value=100)
+    Tmin = st.number_input("最低温度 Tmin", min_value=0.1, value=1.0, step=0.1)
+    Tmax = st.number_input("最高温度 Tmax", min_value=0.1, value=3.5, step=0.1)
+    nT = st.number_input("温度步数", min_value=2, max_value=100, value=10)
 
-st.sidebar.header("Simulation Parameters")
-L = st.sidebar.slider("Lattice size (LxL)", 8, 64, 16)
-Tmin = st.sidebar.number_input("Minimum Temperature", value=1.5)
-Tmax = st.sidebar.number_input("Maximum Temperature", value=3.5)
-nT = st.sidebar.slider("Number of Temperature Steps", 5, 100, 20)
-Ntrial = st.sidebar.slider("MC Trials per Temperature", 10, 1000, 100)
+    run_button = st.button("开始模拟")
 
-run_hysteresis = st.sidebar.checkbox("Run Hysteresis Simulation")
+if run_button:
+    with st.spinner("正在运行模拟，请稍候..."):
+        tmpdir = tempfile.mkdtemp()
 
-if st.sidebar.button("Run Simulation"):
-    with st.spinner("Running simulation..."):
-        folder = "sim_output"
-        os.makedirs(folder, exist_ok=True)
-        
+        # 运行模拟
         results = run_temperature_scan(L, lattice, Ntrial, Tmin, Tmax, nT)
-        st.session_state.simulation_done = True
-        st.session_state.T_list = T_list
-        st.session_state.M = M
-        st.session_state.Chi = Chi
-        st.session_state.spin_snapshots = spin_configs
+        T_list = [r['T'] for r in results]
+        hyst_data = run_hysteresis(L, lattice, T_list, Ntrial=100)
 
-        if run_hysteresis:
-            gif_path = run_hysteresis_simulation(L, Tmin, Tmax, nT, Ntrial, folder)
-            st.session_state.hysteresis_gif = gif_path
+        # 输出图像
+        plot_magnetization_vs_temp(results, save_path=os.path.join(tmpdir, "magnetization_vs_T.png"))
+        save_all_spin_snapshots(results, os.path.join(tmpdir, "spin_snapshots"))
+        save_all_hysteresis_loops(hyst_data, os.path.join(tmpdir, "hysteresis_loops"))
+        save_final_hysteresis_snapshots(hyst_data, os.path.join(tmpdir, "final_hyst_frames"))
 
-        st.success("Simulation complete!")
+        # 展示主要图像
+        st.subheader("磁化率与温度关系图")
+        st.image(os.path.join(tmpdir, "magnetization_vs_T.png"), use_column_width=True)
 
-if st.session_state.simulation_done:
-    T_list = st.session_state.T_list
-    M = st.session_state.M
-    Chi = st.session_state.Chi
-    spin_configs = st.session_state.spin_snapshots
+        st.subheader("自旋分布图 (每温度一帧)")
+        for f in sorted(os.listdir(os.path.join(tmpdir, "spin_snapshots"))):
+            st.image(os.path.join(tmpdir, "spin_snapshots", f), caption=f)
 
-    fig, ax1 = plt.subplots()
-    color = 'tab:blue'
-    ax1.set_xlabel('Temperature')
-    ax1.set_ylabel('Magnetization', color=color)
-    ax1.plot(T_list, M, 'o-', color=color)
-    ax1.tick_params(axis='y', labelcolor=color)
+        st.subheader("磁滞回线图")
+        for f in sorted(os.listdir(os.path.join(tmpdir, "hysteresis_loops"))):
+            st.image(os.path.join(tmpdir, "hysteresis_loops", f), caption=f)
 
-    ax2 = ax1.twinx()
-    color = 'tab:red'
-    ax2.set_ylabel('Susceptibility', color=color)
-    ax2.plot(T_list, Chi, 's--', color=color)
-    ax2.tick_params(axis='y', labelcolor=color)
+        st.subheader("最终温度下的磁滞过程帧")
+        for f in sorted(os.listdir(os.path.join(tmpdir, "final_hyst_frames"))):
+            st.image(os.path.join(tmpdir, "final_hyst_frames", f), caption=f)
 
-    fig.tight_layout()
-    st.pyplot(fig)
+        # 打包为 zip
+        zip_path = os.path.join(tmpdir, "ising_results.zip")
+        with ZipFile(zip_path, 'w') as zipf:
+            for root, _, files in os.walk(tmpdir):
+                for file in files:
+                    if file.endswith(".png"):
+                        abs_path = os.path.join(root, file)
+                        rel_path = os.path.relpath(abs_path, tmpdir)
+                        zipf.write(abs_path, arcname=rel_path)
 
-    t_idx = st.slider("Select temperature snapshot to visualize", 0, len(T_list)-1, 0)
-    snapshot = spin_configs[t_idx]
-    T = T_list[t_idx]
+        with open(zip_path, "rb") as f:
+            st.download_button("\U0001F4E5 下载所有图像 (ZIP)", f, file_name="ising_results.zip")
 
-    fig2 = generate_arrow_plot(snapshot, T)
-    st.pyplot(fig2)
-
-    buf = BytesIO()
-    fig2.savefig(buf, format="png")
-    st.download_button("Download Snapshot Image", data=buf.getvalue(), file_name="ising_snapshot.png", mime="image/png")
-
-    if run_hysteresis and 'hysteresis_gif' in st.session_state:
-        st.header("Hysteresis Animation")
-        st.image(st.session_state.hysteresis_gif, caption="Magnetization Hysteresis Loop", use_column_width=True)
-
-else:
-    st.info("Set parameters and click 'Run Simulation' to begin.")
+        shutil.rmtree(tmpdir)
