@@ -4,7 +4,12 @@ import matplotlib.pyplot as plt
 import os
 from io import BytesIO
 from ising_model import run_temperature_scan, run_hysteresis
-from visualizer import generate_arrow_plot
+from visualizer import generate_arrow_plotfrom visualizer import generate_arrow_plotfrom visualizer import (
+    plot_magnetization_vs_temp,
+    save_all_spin_snapshots,
+    save_all_hysteresis_loops,
+    save_final_hysteresis_snapshots
+)
 
 st.set_page_config(layout="wide")
 st.title("2D Ising Model Visualizer - Wolff Algorithm")
