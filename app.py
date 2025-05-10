@@ -36,25 +36,35 @@ if run_button:
 
         # 输出图像
         plot_magnetization_vs_temp(results, save_path=os.path.join(tmpdir, "magnetization_vs_T.png"))
-        save_all_spin_snapshots(results, os.path.join(tmpdir, "spin_snapshots"))
-        save_all_hysteresis_loops(hyst_data, os.path.join(tmpdir, "hysteresis_loops"))
-        save_final_hysteresis_snapshots(hyst_data, os.path.join(tmpdir, "final_hyst_frames"))
+        spin_dir = os.path.join(tmpdir, "spin_snapshots")
+        hyst_dir = os.path.join(tmpdir, "hysteresis_loops")
+        final_dir = os.path.join(tmpdir, "final_hyst_frames")
 
-        # 展示主要图像
+        save_all_spin_snapshots(results, spin_dir)
+        save_all_hysteresis_loops(hyst_data, hyst_dir)
+        save_final_hysteresis_snapshots(hyst_data, final_dir)
+
+        # 磁化率图
         st.subheader("磁化率与温度关系图")
         st.image(os.path.join(tmpdir, "magnetization_vs_T.png"), use_column_width=True)
 
-        st.subheader("自旋分布图 (每温度一帧)")
-        for f in sorted(os.listdir(os.path.join(tmpdir, "spin_snapshots"))):
-            st.image(os.path.join(tmpdir, "spin_snapshots", f), caption=f)
+        # 自旋图（滑块控制）
+        st.subheader("\u2191/\u2193 自旋分布图（温度滑动预览）")
+        spin_files = sorted(os.listdir(spin_dir))
+        idx_spin = st.slider("选择温度帧 (箭头图)", 0, len(spin_files) - 1, 0)
+        st.image(os.path.join(spin_dir, spin_files[idx_spin]), caption=spin_files[idx_spin])
 
-        st.subheader("磁滞回线图")
-        for f in sorted(os.listdir(os.path.join(tmpdir, "hysteresis_loops"))):
-            st.image(os.path.join(tmpdir, "hysteresis_loops", f), caption=f)
+        # 磁滞图（滑块控制）
+        st.subheader("磁滞回线图（温度滑动预览）")
+        hyst_files = sorted(os.listdir(hyst_dir))
+        idx_hyst = st.slider("选择温度帧 (磁滞图)", 0, len(hyst_files) - 1, 0)
+        st.image(os.path.join(hyst_dir, hyst_files[idx_hyst]), caption=hyst_files[idx_hyst])
 
-        st.subheader("最终温度下的磁滞过程帧")
-        for f in sorted(os.listdir(os.path.join(tmpdir, "final_hyst_frames"))):
-            st.image(os.path.join(tmpdir, "final_hyst_frames", f), caption=f)
+        # 最终温度帧（逐帧控制）
+        st.subheader("最终温度下磁滞过程形成图")
+        final_files = sorted(os.listdir(final_dir))
+        idx_final = st.slider("选择帧 (最终温度磁滞形成)", 0, len(final_files) - 1, 0)
+        st.image(os.path.join(final_dir, final_files[idx_final]), caption=final_files[idx_final])
 
         # 打包为 zip
         zip_path = os.path.join(tmpdir, "ising_results.zip")
