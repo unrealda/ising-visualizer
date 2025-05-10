@@ -30,8 +30,8 @@ if st.sidebar.button("Run Simulation"):
     with st.spinner("Running simulation..."):
         folder = "sim_output"
         os.makedirs(folder, exist_ok=True)
-
-        T_list, spin_configs, M, Chi = run_ising_simulation(L, Tmin, Tmax, nT, Ntrial, folder)
+        
+        results = run_temperature_scan(L, lattice, Ntrial, Tmin, Tmax, nT)
         st.session_state.simulation_done = True
         st.session_state.T_list = T_list
         st.session_state.M = M
