@@ -1,7 +1,7 @@
 import streamlit as st
-import tempfile
-import shutil
+import uuid
 import os
+import shutil
 from ising_model import run_temperature_scan, run_hysteresis
 from visualizer import (
     plot_magnetization_vs_temp,
@@ -15,6 +15,15 @@ from zipfile import ZipFile
 st.set_page_config(page_title="Ising Model (Wolff Algorithm)", layout="wide")
 st.title("\U0001F9BE Wolff 算法模拟二维伊辛模型")
 
+# 确保缓存目录存在
+if 'session_id' not in st.session_state:
+    st.session_state['session_id'] = str(uuid.uuid4())
+    st.session_state['has_run'] = False
+
+base_cache_dir = ".streamlit_cache"
+os.makedirs(base_cache_dir, exist_ok=True)
+tmpdir = os.path.join(base_cache_dir, st.session_state['session_id'])
+
 with st.sidebar:
     st.header("参数设置")
     L = st.number_input("格子边长 L", min_value=4, max_value=128, value=10)
@@ -23,12 +32,16 @@ with st.sidebar:
     Tmin = st.number_input("最低温度 Tmin", min_value=0.1, value=1.0, step=0.1)
     Tmax = st.number_input("最高温度 Tmax", min_value=0.1, value=3.5, step=0.1)
     nT = st.number_input("温度步数", min_value=2, max_value=100, value=10)
-
     run_button = st.button("开始模拟")
+    if st.button("清空缓存并重置"):
+        if os.path.exists(tmpdir):
+            shutil.rmtree(tmpdir)
+        st.session_state.clear()
+        st.experimental_rerun()
 
 if run_button:
     with st.spinner("正在运行模拟，请稍候..."):
-        tmpdir = tempfile.mkdtemp()
+        os.makedirs(tmpdir, exist_ok=True)
 
         # 运行模拟
         results = run_temperature_scan(L, lattice, Ntrial, Tmin, Tmax, nT)
@@ -46,7 +59,6 @@ if run_button:
         save_all_hysteresis_loops(hyst_data, hyst_dir)
         save_final_hysteresis_snapshots(hyst_data, final_dir)
 
-        # 保存每一步磁滞回线点的图
         os.makedirs(final_hyst_plot_dir, exist_ok=True)
         final = hyst_data[-1]
         H_vals = final['H_vals']
@@ -54,43 +66,31 @@ if run_button:
         for i in range(1, len(H_vals)+1):
             plot_hysteresis_loop(H_vals[:i], M_vals[:i], final['T'], save_path=os.path.join(final_hyst_plot_dir, f'frame_{i:03d}.png'))
 
-        # 保存至 session_state
-        st.session_state['results'] = results
-        st.session_state['hyst_data'] = hyst_data
-        st.session_state['tmpdir'] = tmpdir
-        st.session_state['spin_dir'] = spin_dir
-        st.session_state['hyst_dir'] = hyst_dir
-        st.session_state['final_dir'] = final_dir
-        st.session_state['final_hyst_plot_dir'] = final_hyst_plot_dir
+        st.session_state['has_run'] = True
 
-if 'results' in st.session_state:
-    # 使用缓存的图像
-    results = st.session_state['results']
-    hyst_data = st.session_state['hyst_data']
-    tmpdir = st.session_state['tmpdir']
-    spin_dir = st.session_state['spin_dir']
-    hyst_dir = st.session_state['hyst_dir']
-    final_dir = st.session_state['final_dir']
-    final_hyst_plot_dir = st.session_state['final_hyst_plot_dir']
-
+if st.session_state.get('has_run', False):
     # 图 1: 磁化率曲线
     st.subheader("磁化率与温度关系图")
     st.image(os.path.join(tmpdir, "magnetization_vs_T.png"), use_container_width=True)
 
     # 图 2: 箭头图（温度）
     st.subheader("\u2191/\u2193 自旋分布图（温度滑动预览）")
+    spin_dir = os.path.join(tmpdir, "spin_snapshots")
     spin_files = sorted(os.listdir(spin_dir))
     idx_spin = st.slider("选择温度帧 (箭头图)", 0, len(spin_files) - 1, 0)
     st.image(os.path.join(spin_dir, spin_files[idx_spin]), caption=spin_files[idx_spin])
 
     # 图 3: 磁滞图
     st.subheader("磁滞回线图（温度滑动预览）")
+    hyst_dir = os.path.join(tmpdir, "hysteresis_loops")
     hyst_files = sorted(os.listdir(hyst_dir))
     idx_hyst = st.slider("选择温度帧 (磁滞图)", 0, len(hyst_files) - 1, 0)
     st.image(os.path.join(hyst_dir, hyst_files[idx_hyst]), caption=hyst_files[idx_hyst])
 
     # 图 4: 最终温度磁滞过程（双图）
     st.subheader("最终温度下磁滞过程形成图")
+    final_dir = os.path.join(tmpdir, "final_hyst_frames")
+    final_hyst_plot_dir = os.path.join(tmpdir, "final_hyst_plot_frames")
     final_spin_files = sorted(os.listdir(final_dir))
     final_plot_files = sorted(os.listdir(final_hyst_plot_dir))
     idx_final = st.slider("选择帧 (最终温度磁滞形成)", 0, len(final_spin_files) - 1, 0)
