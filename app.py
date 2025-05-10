@@ -3,7 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import os
 from io import BytesIO
-from ising_model import run_ising_simulation, run_hysteresis_simulation
+from ising_model import run_temperature_scan, run_hysteresis
 from visualizer import generate_arrow_plot
 
 st.set_page_config(layout="wide")
