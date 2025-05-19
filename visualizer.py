@@ -2,7 +2,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 import os
 
-
 def plot_magnetization_vs_temp(results, save_path=None):
     T_list = [r['T'] for r in results]
     M = [r['M'] for r in results]
@@ -32,7 +31,6 @@ def plot_magnetization_vs_temp(results, save_path=None):
         fig.savefig(save_path, bbox_inches='tight')
     plt.close(fig)
 
-
 def plot_spin_snapshot(spin_matrix, T, save_path=None):
     cmap = plt.get_cmap('bwr')
     fig, ax = plt.subplots(figsize=(5, 5))
@@ -43,7 +41,6 @@ def plot_spin_snapshot(spin_matrix, T, save_path=None):
     if save_path:
         fig.savefig(save_path, bbox_inches='tight')
     plt.close(fig)
-
 
 def plot_hysteresis_loop(H_vals, M_vals, T, save_path=None):
     fig, ax = plt.subplots(figsize=(6, 5))
@@ -58,7 +55,6 @@ def plot_hysteresis_loop(H_vals, M_vals, T, save_path=None):
         fig.savefig(save_path, bbox_inches='tight')
     plt.close(fig)
 
-
 def save_all_spin_snapshots(results, output_dir):
     os.makedirs(output_dir, exist_ok=True)
     for res in results:
@@ -67,13 +63,11 @@ def save_all_spin_snapshots(results, output_dir):
         fname = os.path.join(output_dir, f'spin_T{T:.3f}.png')
         plot_spin_snapshot(spin_matrix, T, fname)
 
-
 def save_all_hysteresis_loops(hyst_data, output_dir):
     os.makedirs(output_dir, exist_ok=True)
     for h in hyst_data:
         plot_hysteresis_loop(h['H_vals'], h['M_vals'], h['T'],
                              os.path.join(output_dir, f'hysteresis_T{h["T"]:.3f}.png'))
-
 
 def save_final_hysteresis_snapshots(hyst_data, output_dir):
     os.makedirs(output_dir, exist_ok=True)
