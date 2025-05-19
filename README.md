@@ -45,4 +45,4 @@ You can modify:
 - Interactive snapshot selection and image download
 
 ## Author
-Generated with the assistance of OpenAI's GPT-4
+This project was developed by Yuchen Xiong, an independent researcher and developer interested in statistical physics and computational modeling.
