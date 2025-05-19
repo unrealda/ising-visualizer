@@ -15,7 +15,6 @@ from visualizer import (
 st.set_page_config(page_title="Ising Model (Wolff Algorithm)", layout="wide")
 st.title("\U0001F9BE Wolff 算法模拟二维伊辛模型")
 
-# 确保缓存目录存在
 if 'session_id' not in st.session_state:
     st.session_state['session_id'] = str(uuid.uuid4())
     st.session_state['has_run'] = False
@@ -78,25 +77,25 @@ if run_button:
         st.session_state['has_run'] = True
 
 if st.session_state.get('has_run', False):
-    # 图 1: 磁化率曲线
+    #磁化率曲线
     st.subheader("磁化率与温度关系图")
     st.image(os.path.join(tmpdir, "magnetization_vs_T.png"), use_container_width=True)
 
-    # 图 2: 箭头图（温度）
+    #箭头图（温度）
     st.subheader("\u2191/\u2193 自旋分布图（温度滑动预览）")
     spin_dir = os.path.join(tmpdir, "spin_snapshots")
     spin_files = sorted(os.listdir(spin_dir))
     idx_spin = st.slider("选择温度帧 (箭头图)", 0, len(spin_files) - 1, 0)
     st.image(os.path.join(spin_dir, spin_files[idx_spin]), caption=spin_files[idx_spin])
 
-    # 图 3: 磁滞图
+    #磁滞图
     st.subheader("磁滞回线图（温度滑动预览）")
     hyst_dir = os.path.join(tmpdir, "hysteresis_loops")
     hyst_files = sorted(os.listdir(hyst_dir))
     idx_hyst = st.slider("选择温度帧 (磁滞图)", 0, len(hyst_files) - 1, 0)
     st.image(os.path.join(hyst_dir, hyst_files[idx_hyst]), caption=hyst_files[idx_hyst])
 
-    # 图 4: 最终温度磁滞过程（双图）
+    #最终温度磁滞过程（双图）
     st.subheader("最终温度下磁滞过程形成图")
     final_dir = os.path.join(tmpdir, "final_hyst_frames")
     final_hyst_plot_dir = os.path.join(tmpdir, "final_hyst_plot_frames")
@@ -110,7 +109,7 @@ if st.session_state.get('has_run', False):
     with col2:
         st.image(os.path.join(final_hyst_plot_dir, final_plot_files[idx_final]), caption="磁滞回线帧")
 
-    # 下载按钮
+    #下载按钮
     zip_path = os.path.join(tmpdir, "ising_results.zip")
     if not os.path.exists(zip_path):
         with ZipFile(zip_path, 'w') as zipf:
