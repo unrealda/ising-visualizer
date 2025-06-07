@@ -75,3 +75,30 @@ def save_final_hysteresis_snapshots(hyst_data, output_dir):
     for i, frame in enumerate(last['final_frames']):
         fname = os.path.join(output_dir, f'final_hyst_frame_{i:03d}.png')
         plot_spin_snapshot(frame, T=last['T'], save_path=fname)
+# 新增绘制Binder比率及误差棒图
+def plot_binder_cumulant_vs_temp(results, save_path=None):
+    T_list = [r['T'] for r in results]
+    U4 = [r['binder_cumulant'] for r in results]
+    U4_err = [r['binder_error'] for r in results]
+
+    plt.figure(figsize=(7,5))
+    plt.errorbar(T_list, U4, yerr=U4_err, fmt='o-', color='purple', ecolor='lightgray', capsize=3)
+    plt.xlabel('Temperature')
+    plt.ylabel('Binder Cumulant')
+    plt.title('Binder Cumulant vs Temperature')
+    plt.grid(True)
+    if save_path:
+        plt.savefig(save_path, bbox_inches='tight')
+    plt.close()
+
+# 新增绘制矫顽力及误差棒图
+def plot_coercive_field_vs_temp(T_list, Hc_list, Hc_err_list, save_path=None):
+    plt.figure(figsize=(7,5))
+    plt.errorbar(T_list, Hc_list, yerr=Hc_err_list, fmt='s-', color='darkgreen', ecolor='lightgreen', capsize=3)
+    plt.xlabel('Temperature')
+    plt.ylabel('Coercive Field')
+    plt.title('Coercive Field vs Temperature')
+    plt.grid(True)
+    if save_path:
+        plt.savefig(save_path, bbox_inches='tight')
+    plt.close()
