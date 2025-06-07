@@ -3,13 +3,16 @@ import uuid
 import os
 import shutil
 from zipfile import ZipFile
-from ising_model import run_temperature_scan, run_hysteresis
+
+from ising_model import run_temperature_scan, run_hysteresis, compute_coercive_field_stats
 from visualizer import (
     plot_magnetization_vs_temp,
     save_all_spin_snapshots,
     save_all_hysteresis_loops,
     save_final_hysteresis_snapshots,
-    plot_hysteresis_loop
+    plot_hysteresis_loop,
+    plot_binder_cumulant_vs_temp,
+    plot_coercive_field_vs_temp,
 )
 
 st.set_page_config(page_title="Ising Model (Wolff Algorithm)", layout="wide")
@@ -48,11 +51,20 @@ with st.sidebar:
 def simulate_and_generate(L, lattice, Ntrial, Tmin, Tmax, nT, tmpdir):
     os.makedirs(tmpdir, exist_ok=True)
 
+    # 运行温度扫描，包含Binder统计
     results = run_temperature_scan(L, lattice, Ntrial, Tmin, Tmax, nT)
     T_list = [r['T'] for r in results]
+
+    # 运行磁滞回线模拟
     hyst_data = run_hysteresis(L, lattice, T_list, Ntrial=100)
 
+    # 绘图并保存
     plot_magnetization_vs_temp(results, save_path=os.path.join(tmpdir, "magnetization_vs_T.png"))
+    plot_binder_cumulant_vs_temp(results, save_path=os.path.join(tmpdir, "binder_cumulant_vs_T.png"))
+
+    Hc_list, Hc_err_list = compute_coercive_field_stats(hyst_data)
+    plot_coercive_field_vs_temp(T_list, Hc_list, Hc_err_list, save_path=os.path.join(tmpdir, "coercive_field_vs_T.png"))
+
     spin_dir = os.path.join(tmpdir, "spin_snapshots")
     hyst_dir = os.path.join(tmpdir, "hysteresis_loops")
     final_dir = os.path.join(tmpdir, "final_hyst_frames")
@@ -66,7 +78,7 @@ def simulate_and_generate(L, lattice, Ntrial, Tmin, Tmax, nT, tmpdir):
     final = hyst_data[-1]
     H_vals = final['H_vals']
     M_vals = final['M_vals']
-    for i in range(1, len(H_vals)+1):
+    for i in range(1, len(H_vals) + 1):
         plot_hysteresis_loop(H_vals[:i], M_vals[:i], final['T'], save_path=os.path.join(final_hyst_plot_dir, f'frame_{i:03d}.png'))
 
     return results, hyst_data
@@ -77,25 +89,33 @@ if run_button:
         st.session_state['has_run'] = True
 
 if st.session_state.get('has_run', False):
-    #磁化率曲线
+    # 磁化率曲线
     st.subheader("磁化率与温度关系图")
     st.image(os.path.join(tmpdir, "magnetization_vs_T.png"), use_container_width=True)
 
-    #箭头图（温度）
+    # Binder比率曲线
+    st.subheader("Binder 比率与温度关系图")
+    st.image(os.path.join(tmpdir, "binder_cumulant_vs_T.png"), use_container_width=True)
+
+    # 矫顽力曲线
+    st.subheader("矫顽力与温度关系图")
+    st.image(os.path.join(tmpdir, "coercive_field_vs_T.png"), use_container_width=True)
+
+    # 自旋分布图（温度滑动预览）
     st.subheader("\u2191/\u2193 自旋分布图（温度滑动预览）")
     spin_dir = os.path.join(tmpdir, "spin_snapshots")
     spin_files = sorted(os.listdir(spin_dir))
     idx_spin = st.slider("选择温度帧 (箭头图)", 0, len(spin_files) - 1, 0)
     st.image(os.path.join(spin_dir, spin_files[idx_spin]), caption=spin_files[idx_spin])
 
-    #磁滞图
+    # 磁滞回线图（温度滑动预览）
     st.subheader("磁滞回线图（温度滑动预览）")
     hyst_dir = os.path.join(tmpdir, "hysteresis_loops")
     hyst_files = sorted(os.listdir(hyst_dir))
     idx_hyst = st.slider("选择温度帧 (磁滞图)", 0, len(hyst_files) - 1, 0)
     st.image(os.path.join(hyst_dir, hyst_files[idx_hyst]), caption=hyst_files[idx_hyst])
 
-    #最终温度磁滞过程（双图）
+    # 最终温度下磁滞过程形成图（双图）
     st.subheader("最终温度下磁滞过程形成图")
     final_dir = os.path.join(tmpdir, "final_hyst_frames")
     final_hyst_plot_dir = os.path.join(tmpdir, "final_hyst_plot_frames")
@@ -109,7 +129,7 @@ if st.session_state.get('has_run', False):
     with col2:
         st.image(os.path.join(final_hyst_plot_dir, final_plot_files[idx_final]), caption="磁滞回线帧")
 
-    #下载按钮
+    # 下载所有图像按钮
     zip_path = os.path.join(tmpdir, "ising_results.zip")
     if not os.path.exists(zip_path):
         with ZipFile(zip_path, 'w') as zipf:
