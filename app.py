@@ -3,7 +3,7 @@ import uuid
 import os
 import shutil
 from zipfile import ZipFile
-from ising_model import run_temperature_scan
+from ising_model import run_temperature_scan, run_hysteresis
 from visualizer import (
     plot_magnetization_vs_temp,
     save_all_spin_snapshots,
