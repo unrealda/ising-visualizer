@@ -14,11 +14,9 @@ from visualizer import (
 
 st.set_page_config(page_title="Ising Model (Wolff Algorithm)", layout="wide")
 st.title("\U0001F9BE Wolff 算法模拟二维伊辛模型")
-
 if 'session_id' not in st.session_state:
     st.session_state['session_id'] = str(uuid.uuid4())
     st.session_state['has_run'] = False
-
 base_cache_dir = ".streamlit_cache"
 os.makedirs(base_cache_dir, exist_ok=True)
 tmpdir = os.path.join(base_cache_dir, st.session_state['session_id'])
@@ -61,14 +59,12 @@ def simulate_and_generate(L, lattice, Ntrial, Tmin, Tmax, nT, tmpdir):
     save_all_spin_snapshots(results, spin_dir)
     save_all_hysteresis_loops(hyst_data, hyst_dir)
     save_final_hysteresis_snapshots(hyst_data, final_dir)
-
     os.makedirs(final_hyst_plot_dir, exist_ok=True)
     final = hyst_data[-1]
     H_vals = final['H_vals']
     M_vals = final['M_vals']
     for i in range(1, len(H_vals)+1):
         plot_hysteresis_loop(H_vals[:i], M_vals[:i], final['T'], save_path=os.path.join(final_hyst_plot_dir, f'frame_{i:03d}.png'))
-
     return results, hyst_data
 
 if run_button:
