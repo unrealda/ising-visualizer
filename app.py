@@ -1,7 +1,7 @@
 import os
 import streamlit as st
 from ising_model import run_temperature_scan, run_hysteresis, compute_coercive_field_stats
-from visualizer import (plot_magnetization_vs_temp,save_all_spin_snapshots,save_all_hysteresis_loops,save_final_hysteresis_snapshots,plot_binder_ratio_vs_temp,plot_coercive_field_vs_temp)
+from visualizer import (plot_magnetization_vs_temp,save_all_spin_snapshots,save_all_hysteresis_loops,save_final_hysteresis_snapshots,plot_binder_cumulant_vs_temp,plot_coercive_field_vs_temp)
 
 @st.cache_data(show_spinner=True)
 def simulate_and_generate(L, lattice, Ntrial, Tmin, Tmax, nT, tmpdir):
