@@ -3,102 +3,123 @@ import numpy as np
 import os
 
 def plot_magnetization_vs_temp(results, save_path=None):
-    T_list = [r['T'] for r in results]
-    M = [r['M'] for r in results]
-    Mvar = [r['Mvar'] for r in results]
-    Chi = [r['chi'] for r in results]
+    """
+    绘制磁化强度与磁化率随温度变化，支持保存到文件。
+    
+    results: List[dict]，每个dict包含'T', 'M', 'Mvar', 'Chi'等字段
+    save_path: str或None，指定保存路径，None则不保存
+    """
+    T = np.array([r['T'] for r in results])
+    M = np.array([r['M'] for r in results])
+    Mvar = np.array([r['Mvar'] for r in results])
+    Chi = np.array([r['Chi'] for r in results])
 
-    plt.figure(figsize=(8, 5))
-    ax1 = plt.gca()
-    ax2 = ax1.twinx()
-
-    ax1.errorbar(T_list, M, yerr=np.sqrt(Mvar), fmt='x--', color='blue', label='Magnetization')
-    ax2.plot(T_list, Chi, 'o-r', label='Susceptibility ($\chi$)')
-
-    ax1.set_xlabel('Temperature')
-    ax1.set_ylabel('Magnetization', color='blue')
-    ax2.set_ylabel('Susceptibility $\chi$', color='red')
+    fig, ax1 = plt.subplots(figsize=(8, 5))
+    ax1.errorbar(T, M, yerr=np.sqrt(Mvar), fmt='o-', color='tab:blue', label='磁化强度 M')
+    ax1.set_xlabel('温度 T')
+    ax1.set_ylabel('磁化强度 M', color='tab:blue')
+    ax1.tick_params(axis='y', labelcolor='tab:blue')
     ax1.grid(True)
 
-    chi_peak = max(Chi)
-    idx_peak = Chi.index(chi_peak)
-    ax2.plot(T_list[idx_peak], chi_peak, 'kp', markerfacecolor='green')
-    ax2.text(T_list[idx_peak] + 0.1, chi_peak, f'Peak at T = {T_list[idx_peak]:.2f}', color='green')
+    ax2 = ax1.twinx()
+    ax2.plot(T, Chi, 'r--o', label='磁化率 χ')
+    ax2.set_ylabel('磁化率 χ', color='tab:red')
+    ax2.tick_params(axis='y', labelcolor='tab:red')
 
-    plt.title("Magnetization and Susceptibility vs Temperature")
-    fig = plt.gcf()
-    if save_path:
-        fig.savefig(save_path, bbox_inches='tight')
-    plt.close(fig)
+    plt.title('磁化强度与磁化率随温度变化')
+    fig.tight_layout()
 
-def plot_spin_snapshot(spin_matrix, T, save_path=None):
-    cmap = plt.get_cmap('bwr')
-    fig, ax = plt.subplots(figsize=(5, 5))
-    ax.imshow(spin_matrix, cmap=cmap, vmin=-1, vmax=1)
-    ax.set_xticks([])
-    ax.set_yticks([])
-    ax.set_title(f"Spin Configuration at T = {T:.2f}")
     if save_path:
-        fig.savefig(save_path, bbox_inches='tight')
-    plt.close(fig)
+        plt.savefig(save_path, dpi=150)
+        plt.close(fig)
+    else:
+        plt.show()
+
+def save_all_spin_snapshots(results, out_dir):
+    """
+    生成所有温度对应的自旋分布箭头图并保存
+    
+    results: List[dict]，每个dict至少含 'T', 'spin_config' (2D np.array)
+    out_dir: 输出文件夹路径
+    """
+    os.makedirs(out_dir, exist_ok=True)
+    for r in results:
+        T = r['T']
+        spins = r['spin_config']  # 2D numpy array
+        fig, ax = plt.subplots(figsize=(5, 5))
+        ax.imshow(spins, cmap='coolwarm', interpolation='nearest')
+        ax.set_title(f'自旋分布图 T={T:.2f}')
+        ax.axis('off')
+        plt.tight_layout()
+        filepath = os.path.join(out_dir, f'spin_T_{T:.2f}.png')
+        plt.savefig(filepath, dpi=150)
+        plt.close(fig)
+
+def save_all_hysteresis_loops(hyst_data, out_dir):
+    """
+    生成所有温度对应的磁滞回线图并保存
+    
+    hyst_data: List[dict]，每个dict包含 'T', 'H_vals', 'M_vals'
+    out_dir: 输出文件夹路径
+    """
+    os.makedirs(out_dir, exist_ok=True)
+    for h in hyst_data:
+        T = h['T']
+        H = h['H_vals']
+        M = h['M_vals']
+        fig, ax = plt.subplots(figsize=(6, 5))
+        ax.plot(H, M, 'o-', linewidth=1.5)
+        ax.set_title(f'磁滞回线 T={T:.2f}')
+        ax.set_xlabel('外部磁场 H')
+        ax.set_ylabel('磁化强度 M')
+        ax.set_xlim([-1.1, 1.1])
+        ax.set_ylim([-1.1, 1.1])
+        ax.grid(True)
+        plt.tight_layout()
+        filepath = os.path.join(out_dir, f'hysteresis_T_{T:.2f}.png')
+        plt.savefig(filepath, dpi=150)
+        plt.close(fig)
+
+def save_final_hysteresis_snapshots(hyst_data, out_dir):
+    """
+    保存最终温度下磁滞过程每步的自旋分布（假设数据已包含逐帧spin_config）
+    
+    hyst_data: List[dict]，最后一个dict应包含 'spin_frames': List[np.array]
+    out_dir: 保存路径
+    """
+    os.makedirs(out_dir, exist_ok=True)
+    final_data = hyst_data[-1]
+    spin_frames = final_data.get('spin_frames', [])
+    for i, spins in enumerate(spin_frames):
+        fig, ax = plt.subplots(figsize=(5, 5))
+        ax.imshow(spins, cmap='coolwarm', interpolation='nearest')
+        ax.set_title(f'最终温度磁滞自旋帧 {i+1}')
+        ax.axis('off')
+        plt.tight_layout()
+        filepath = os.path.join(out_dir, f'final_spin_frame_{i+1:03d}.png')
+        plt.savefig(filepath, dpi=150)
+        plt.close(fig)
 
 def plot_hysteresis_loop(H_vals, M_vals, T, save_path=None):
+    """
+    单步绘制磁滞回线进展图，方便做成动画帧
+    
+    H_vals, M_vals: 当前进度数据数组
+    T: 当前温度
+    save_path: 若指定，则保存到文件
+    """
     fig, ax = plt.subplots(figsize=(6, 5))
-    ax.plot(H_vals, M_vals, 'o-', lw=1.5)
-    ax.set_xlabel('External Field H')
-    ax.set_ylabel('Magnetization')
-    ax.set_title(f"Hysteresis Loop at T = {T:.2f}")
-    ax.grid(True)
+    ax.plot(H_vals, M_vals, 'o-', linewidth=1.5, color='purple')
+    ax.set_title(f'磁滞回线进展 T={T:.2f}')
+    ax.set_xlabel('外部磁场 H')
+    ax.set_ylabel('磁化强度 M')
     ax.set_xlim([-1.1, 1.1])
     ax.set_ylim([-1.1, 1.1])
+    ax.grid(True)
+    plt.tight_layout()
+
     if save_path:
-        fig.savefig(save_path, bbox_inches='tight')
-    plt.close(fig)
-
-def save_all_spin_snapshots(results, output_dir):
-    os.makedirs(output_dir, exist_ok=True)
-    for res in results:
-        spin_matrix = res['spins_snapshot']
-        T = res['T']
-        fname = os.path.join(output_dir, f'spin_T{T:.3f}.png')
-        plot_spin_snapshot(spin_matrix, T, fname)
-
-def save_all_hysteresis_loops(hyst_data, output_dir):
-    os.makedirs(output_dir, exist_ok=True)
-    for h in hyst_data:
-        plot_hysteresis_loop(h['H_vals'], h['M_vals'], h['T'],
-                             os.path.join(output_dir, f'hysteresis_T{h["T"]:.3f}.png'))
-
-def save_final_hysteresis_snapshots(hyst_data, output_dir):
-    os.makedirs(output_dir, exist_ok=True)
-    last = hyst_data[-1]
-    for i, frame in enumerate(last['final_frames']):
-        fname = os.path.join(output_dir, f'final_hyst_frame_{i:03d}.png')
-        plot_spin_snapshot(frame, T=last['T'], save_path=fname)
-# 新增绘制Binder比率及误差棒图
-def plot_binder_cumulant_vs_temp(results, save_path=None):
-    T_list = [r['T'] for r in results]
-    U4 = [r['binder_cumulant'] for r in results]
-    U4_err = [r['binder_error'] for r in results]
-
-    plt.figure(figsize=(7,5))
-    plt.errorbar(T_list, U4, yerr=U4_err, fmt='o-', color='purple', ecolor='lightgray', capsize=3)
-    plt.xlabel('Temperature')
-    plt.ylabel('Binder Cumulant')
-    plt.title('Binder Cumulant vs Temperature')
-    plt.grid(True)
-    if save_path:
-        plt.savefig(save_path, bbox_inches='tight')
-    plt.close()
-
-# 新增绘制矫顽力及误差棒图
-def plot_coercive_field_vs_temp(T_list, Hc_list, Hc_err_list, save_path=None):
-    plt.figure(figsize=(7,5))
-    plt.errorbar(T_list, Hc_list, yerr=Hc_err_list, fmt='s-', color='darkgreen', ecolor='lightgreen', capsize=3)
-    plt.xlabel('Temperature')
-    plt.ylabel('Coercive Field')
-    plt.title('Coercive Field vs Temperature')
-    plt.grid(True)
-    if save_path:
-        plt.savefig(save_path, bbox_inches='tight')
-    plt.close()
+        plt.savefig(save_path, dpi=150)
+        plt.close(fig)
+    else:
+        plt.show()
