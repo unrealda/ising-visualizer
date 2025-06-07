@@ -1,76 +1,77 @@
 import matplotlib.pyplot as plt
 import numpy as np
-import matplotlib.animation as animation
+import os
 
-def plot_magnetization_vs_temp(T, M, susceptibility, binder, lattice_type='Square'):
-    fig, ax = plt.subplots(1, 3, figsize=(18,5))
+def plot_magnetization_vs_temp(results, save_path=None):
+    T_list = [r['T'] for r in results]
+    M = [r['M'] for r in results]
+    Mvar = [r['Mvar'] for r in results]
+    Chi = [r['chi'] for r in results]
 
-    # 磁化强度
-    ax[0].errorbar(T, M[:,0], yerr=M[:,1], fmt='ro-', label="磁化强度 M")
-    ax[0].set_xlabel('温度 T')
-    ax[0].set_ylabel('磁化强度 M')
-    ax[0].set_title(f'{lattice_type} 晶格磁化强度')
-    ax[0].grid(True)
+    plt.figure(figsize=(8, 5))
+    ax1 = plt.gca()
+    ax2 = ax1.twinx()
 
-    # 磁化率
-    ax[1].errorbar(T, susceptibility[:,0], yerr=susceptibility[:,1], fmt='bo-', label="磁化率 χ")
-    ax[1].set_xlabel('温度 T')
-    ax[1].set_ylabel('磁化率 χ')
-    ax[1].set_title(f'{lattice_type} 晶格磁化率')
-    ax[1].grid(True)
+    ax1.errorbar(T_list, M, yerr=np.sqrt(Mvar), fmt='x--', color='blue', label='Magnetization')
+    ax2.plot(T_list, Chi, 'o-r', label='Susceptibility ($\chi$)')
 
-    # Binder比率
-    ax[2].errorbar(T, binder[:,0], yerr=binder[:,1], fmt='go-', label="Binder比率 U4")
-    ax[2].set_xlabel('温度 T')
-    ax[2].set_ylabel('Binder比率 U4')
-    ax[2].set_title(f'{lattice_type} 晶格Binder比率')
-    ax[2].grid(True)
+    ax1.set_xlabel('Temperature')
+    ax1.set_ylabel('Magnetization', color='blue')
+    ax2.set_ylabel('Susceptibility $\chi$', color='red')
+    ax1.grid(True)
 
-    plt.tight_layout()
-    return fig
+    chi_peak = max(Chi)
+    idx_peak = Chi.index(chi_peak)
+    ax2.plot(T_list[idx_peak], chi_peak, 'kp', markerfacecolor='green')
+    ax2.text(T_list[idx_peak] + 0.1, chi_peak, f'Peak at T = {T_list[idx_peak]:.2f}', color='green')
 
-def plot_cluster_distribution(sizes):
-    fig, ax = plt.subplots(figsize=(8,5))
-    counts, bins, patches = ax.hist(sizes, bins=30, color='purple', alpha=0.7)
-    ax.set_xlabel("簇大小")
-    ax.set_ylabel("频数")
-    ax.set_title("簇大小分布直方图")
+    plt.title("Magnetization and Susceptibility vs Temperature")
+    fig = plt.gcf()
+    if save_path:
+        fig.savefig(save_path, bbox_inches='tight')
+    plt.close(fig)
+
+def plot_spin_snapshot(spin_matrix, T, save_path=None):
+    cmap = plt.get_cmap('bwr')
+    fig, ax = plt.subplots(figsize=(5, 5))
+    ax.imshow(spin_matrix, cmap=cmap, vmin=-1, vmax=1)
+    ax.set_xticks([])
+    ax.set_yticks([])
+    ax.set_title(f"Spin Configuration at T = {T:.2f}")
+    if save_path:
+        fig.savefig(save_path, bbox_inches='tight')
+    plt.close(fig)
+
+def plot_hysteresis_loop(H_vals, M_vals, T, save_path=None):
+    fig, ax = plt.subplots(figsize=(6, 5))
+    ax.plot(H_vals, M_vals, 'o-', lw=1.5)
+    ax.set_xlabel('External Field H')
+    ax.set_ylabel('Magnetization')
+    ax.set_title(f"Hysteresis Loop at T = {T:.2f}")
     ax.grid(True)
-    plt.tight_layout()
-    return fig
+    ax.set_xlim([-1.1, 1.1])
+    ax.set_ylim([-1.1, 1.1])
+    if save_path:
+        fig.savefig(save_path, bbox_inches='tight')
+    plt.close(fig)
 
-def plot_hysteresis(H, M, coercivity, remanence):
-    fig, ax = plt.subplots(figsize=(8,5))
-    ax.plot(H, M, 'r-o', label="磁化强度 M")
-    ax.axvline(coercivity, color='b', linestyle='--', label=f'矫顽力 Hc={coercivity:.3f}')
-    ax.axhline(remanence, color='g', linestyle='--', label=f'剩余磁化 Mr={remanence:.3f}')
-    ax.set_xlabel('外磁场 H')
-    ax.set_ylabel('磁化强度 M')
-    ax.set_title('磁滞回线')
-    ax.legend()
-    ax.grid(True)
-    plt.tight_layout()
-    return fig
+def save_all_spin_snapshots(results, output_dir):
+    os.makedirs(output_dir, exist_ok=True)
+    for res in results:
+        spin_matrix = res['spins_snapshot']
+        T = res['T']
+        fname = os.path.join(output_dir, f'spin_T{T:.3f}.png')
+        plot_spin_snapshot(spin_matrix, T, fname)
 
-def animate_hysteresis(H_values, M_values, lattice_states, pause=200):
-    """生成磁滞回线动画，红蓝箭头表示自旋方向"""
-    fig, ax = plt.subplots(figsize=(6,6))
-    L = lattice_states[0].shape[0]
+def save_all_hysteresis_loops(hyst_data, output_dir):
+    os.makedirs(output_dir, exist_ok=True)
+    for h in hyst_data:
+        plot_hysteresis_loop(h['H_vals'], h['M_vals'], h['T'],
+                             os.path.join(output_dir, f'hysteresis_T{h["T"]:.3f}.png'))
 
-    def update(frame):
-        ax.clear()
-        ax.set_title(f'Hysteresis Loop: H={H_values[frame]:.2f}, M={M_values[frame]:.3f}')
-        ax.set_xticks([])
-        ax.set_yticks([])
-        lattice = lattice_states[frame]
-        for i in range(L):
-            for j in range(L):
-                if lattice[i,j] == 1:
-                    ax.arrow(j, L-1-i, 0, 0.3, head_width=0.2, head_length=0.2, fc='red', ec='red')
-                else:
-                    ax.arrow(j, L-1-i, 0, -0.3, head_width=0.2, head_length=0.2, fc='blue', ec='blue')
-        ax.set_xlim(-0.5, L-0.5)
-        ax.set_ylim(-0.5, L-0.5)
-
-    ani = animation.FuncAnimation(fig, update, frames=len(H_values), interval=pause)
-    return ani
+def save_final_hysteresis_snapshots(hyst_data, output_dir):
+    os.makedirs(output_dir, exist_ok=True)
+    last = hyst_data[-1]
+    for i, frame in enumerate(last['final_frames']):
+        fname = os.path.join(output_dir, f'final_hyst_frame_{i:03d}.png')
+        plot_spin_snapshot(frame, T=last['T'], save_path=fname)
