@@ -47,7 +47,7 @@ def wolff_update(spins, neighbors, beta, H=0.0):
                     cluster.append(nbr)
                     stack.append(nbr)
     spins[visited] *= -1
-return spins, len(cluster), np.sum(spins)
+    return spins, len(cluster), np.sum(spins)
 
 def run_temperature_scan(L, lattice_type, Ntrial, Tmin, Tmax, nT):
     N = L * L
