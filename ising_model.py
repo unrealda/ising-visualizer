@@ -1,197 +1,130 @@
 import numpy as np
-import pandas as pd
 from collections import deque
 
-def square_neighbors(L):
-    neighbors = {}
-    for i in range(L):
-        for j in range(L):
-            site = i * L + j
-            neighbors[site] = []
-            for dx, dy in [(-1,0),(1,0),(0,-1),(0,1)]:
-                ni, nj = (i+dx)%L, (j+dy)%L
-                neighbor_site = ni * L + nj
-                neighbors[site].append(neighbor_site)
+def initialize_lattice(L, lattice_type='Square'):
+    """初始化自旋晶格，随机±1"""
+    lattice = np.random.choice([-1, 1], size=(L, L))
+    return lattice
+
+def get_neighbors(lattice, i, j, lattice_type='Square'):
+    """返回指定点邻居自旋"""
+    L = lattice.shape[0]
+    neighbors = []
+    if lattice_type == 'Square':
+        neighbors.extend([
+            lattice[(i+1)%L, j],
+            lattice[(i-1)%L, j],
+            lattice[i, (j+1)%L],
+            lattice[i, (j-1)%L]
+        ])
+    elif lattice_type == 'Triangular':
+        neighbors.extend([
+            lattice[(i+1)%L, j],
+            lattice[(i-1)%L, j],
+            lattice[i, (j+1)%L],
+            lattice[i, (j-1)%L],
+            lattice[(i+1)%L, (j-1)%L],
+            lattice[(i-1)%L, (j+1)%L]
+        ])
     return neighbors
 
-def triangular_neighbors(L):
-    neighbors = {}
-    for i in range(L):
-        for j in range(L):
-            site = i * L + j
-            neighbors[site] = []
-            for dx, dy in [(-1,0),(1,0),(0,-1),(0,1),(-1,1),(1,-1)]:
-                ni, nj = (i+dx)%L, (j+dy)%L
-                neighbor_site = ni * L + nj
-                neighbors[site].append(neighbor_site)
-    return neighbors
+def delta_energy(lattice, i, j, H=0.0, lattice_type='Square', J=1):
+    """计算翻转某点自旋引起的能量变化"""
+    spin = lattice[i, j]
+    neighbors = get_neighbors(lattice, i, j, lattice_type)
+    dE = 2 * spin * (J * sum(neighbors) + H)
+    return dE
 
-def wolff_algorithm(L, neighbors, T, Ntrial):
-    N = L * L
-    beta = 1.0 / T
-    p = 1 - np.exp(-2 * beta)
-    S = np.random.choice([-1, 1], size=N)
+def monte_carlo_step(lattice, T, H=0.0, lattice_type='Square', J=1):
+    """单步蒙特卡洛 Metropolis 算法"""
+    L = lattice.shape[0]
+    for _ in range(L*L):
+        i = np.random.randint(0, L)
+        j = np.random.randint(0, L)
+        dE = delta_energy(lattice, i, j, H, lattice_type, J)
+        if dE <= 0 or np.random.rand() < np.exp(-dE / T):
+            lattice[i, j] *= -1
+    return lattice
+
+def simulate_ising(L, T, n_steps, H=0.0, lattice_type='Square', J=1):
+    """完整模拟，返回磁化率、磁化强度、Binder比率及每步磁化数据"""
+    lattice = initialize_lattice(L, lattice_type)
     M_list = []
-    cluster_sizes = []
+    for _ in range(n_steps):
+        lattice = monte_carlo_step(lattice, T, H, lattice_type, J)
+        M_list.append(np.sum(lattice))
+    M_array = np.array(M_list)
+    norm_factor = L*L
 
-    for _ in range(Ntrial):
-        seed = np.random.randint(N)
-        cluster = set([seed])
-        pocket = deque([seed])
+    M_avg = np.mean(np.abs(M_array)) / norm_factor
+    susceptibility = (np.var(M_array) / (T * norm_factor)) if T > 0 else 0
+    binder_cumulant = 1 - np.mean(M_array**4) / (3 * (np.mean(M_array**2)**2)) if np.mean(M_array**2) != 0 else 0
 
-        while pocket:
-            site = pocket.pop()
-            for neigh in neighbors[site]:
-                if S[neigh] == S[site] and neigh not in cluster and np.random.rand() < p:
-                    cluster.add(neigh)
-                    pocket.append(neigh)
-        S[list(cluster)] *= -1
-        M = np.sum(S) / N
-        M_list.append(M)
-        cluster_sizes.append(len(cluster))
+    return lattice, M_avg, susceptibility, binder_cumulant, M_array / norm_factor
 
-    return M_list, cluster_sizes
+def cluster_sizes(lattice, lattice_type='Square'):
+    """计算晶格中自旋簇大小分布"""
+    L = lattice.shape[0]
+    visited = np.zeros_like(lattice, dtype=bool)
+    sizes = []
 
-def simulate(L, lattice, Tmin, Tmax, nT, Ntrial):
-    if lattice.lower() == 'square':
-        neighbors = square_neighbors(L)
-    elif lattice.lower() == 'triangular':
-        neighbors = triangular_neighbors(L)
-    else:
-        raise ValueError("Unknown lattice type")
-
-    T_list = np.linspace(Tmin, Tmax, nT)
-    M_mean = []
-    M_var = []
-    Chi = []
-    Binder = []
-    all_cluster_sizes = []
-
-    for T in T_list:
-        M_list, cluster_sizes = wolff_algorithm(L, neighbors, T, Ntrial)
-        M_arr = np.array(M_list)
-        M_abs = np.abs(M_arr)
-        M_mean.append(np.mean(M_abs))
-        M_var.append(np.var(M_arr))
-        Chi.append(L*L * (np.mean(M_arr**2) - np.mean(M_abs)**2) / T)
-        M2 = np.mean(M_arr**2)
-        M4 = np.mean(M_arr**4)
-        Binder.append(1 - M4 / (3 * M2**2))
-        all_cluster_sizes.extend(cluster_sizes)
-
-    result_df = pd.DataFrame({
-        "Temperature": T_list,
-        "Magnetization": M_mean,
-        "Magnetization_Var": M_var,
-        "Susceptibility": Chi,
-        "Binder_Ratio": Binder
-    })
-
-    return result_df, all_cluster_sizes
-
-def hysteresis_simulation(L, lattice, T_list, Ntrial, gifname, final_gifname, save_path=None):
-    from PIL import Image, ImageDraw
-
-    if lattice.lower() == 'square':
-        neighbors = square_neighbors(L)
-    elif lattice.lower() == 'triangular':
-        neighbors = triangular_neighbors(L)
-    else:
-        raise ValueError("Unknown lattice type")
-
-    N = L * L
-    beta_list = 1.0 / np.array(T_list)
-    H_vals_dict = {}
-
-    A_hyst_all = []
-    M_r_all = []
-    H_c_all = []
-
-    all_gif_frames = []
-    final_gif_frames = []
-
-    for idx_T, (T, beta) in enumerate(zip(T_list, beta_list)):
-        if abs(T - T_list[np.argmax(beta_list)]) < 0.3:
-            H_vals = np.concatenate((np.arange(-1,1.05,0.05), np.arange(0.95,-1.05,-0.05)))
-            Ntrial_hyst = 200
+    def neighbors_coords(i, j):
+        if lattice_type == 'Square':
+            return [((i+1)%L, j), ((i-1)%L, j), (i, (j+1)%L), (i, (j-1)%L)]
+        elif lattice_type == 'Triangular':
+            return [((i+1)%L, j), ((i-1)%L, j), (i, (j+1)%L), (i, (j-1)%L),
+                    ((i+1)%L, (j-1)%L), ((i-1)%L, (j+1)%L)]
         else:
-            H_vals = np.concatenate((np.arange(-1,1.2,0.2), np.arange(0.8,-1.2,-0.2)))
-            Ntrial_hyst = 100
+            return []
 
-        S = np.ones(N)
-        M_H = []
+    for i in range(L):
+        for j in range(L):
+            if not visited[i, j]:
+                spin_val = lattice[i, j]
+                size = 0
+                queue = deque()
+                queue.append((i, j))
+                visited[i, j] = True
+                while queue:
+                    x, y = queue.popleft()
+                    size += 1
+                    for nx, ny in neighbors_coords(x, y):
+                        if not visited[nx, ny] and lattice[nx, ny] == spin_val:
+                            visited[nx, ny] = True
+                            queue.append((nx, ny))
+                sizes.append(size)
+    return sizes
 
-        for h in H_vals:
-            for _ in range(Ntrial_hyst):
-                seed = np.random.randint(N)
-                cluster = set([seed])
-                pocket = deque([seed])
-                while pocket:
-                    site = pocket.pop()
-                    for neigh in neighbors[site]:
-                        if S[neigh] == S[site] and neigh not in cluster:
-                            prob = 1 - np.exp(-2 * beta * (1 + h * S[site]))
-                            if np.random.rand() < prob:
-                                cluster.add(neigh)
-                                pocket.append(neigh)
-                S[list(cluster)] *= -1
-            M_H.append(np.sum(S)/N)
+def hysteresis_loop(L, T, H_values, n_eq_steps, n_meas_steps, lattice_type='Square', J=1):
+    """
+    计算磁滞回线，返回磁化强度数组，矫顽力，剩余磁化强度及最终晶格状态
+    """
+    lattice = initialize_lattice(L, lattice_type)
+    magnetizations = []
+    for H in H_values:
+        # 平衡
+        for _ in range(n_eq_steps):
+            lattice = monte_carlo_step(lattice, T, H, lattice_type, J)
+        # 测量
+        M_meas = []
+        for _ in range(n_meas_steps):
+            lattice = monte_carlo_step(lattice, T, H, lattice_type, J)
+            M_meas.append(np.sum(lattice)/(L*L))
+        magnetizations.append(np.mean(M_meas))
+    magnetizations = np.array(magnetizations)
 
-            if idx_T == len(T_list)-1:
-                fig = draw_hysteresis_frame(H_vals[:len(M_H)], M_H, T, h)
-                final_gif_frames.append(fig)
+    # 矫顽力(Hc)估算: 找磁化强度过零点的外场值
+    cross_indices = np.where(np.diff(np.sign(magnetizations)))[0]
+    Hc_vals = []
+    for idx in cross_indices:
+        h1, h2 = H_values[idx], H_values[idx+1]
+        m1, m2 = magnetizations[idx], magnetizations[idx+1]
+        # 线性插值
+        h_cross = h1 - m1*(h2 - h1)/(m2 - m1)
+        Hc_vals.append(h_cross)
+    coercivity = Hc_vals[0] if Hc_vals else 0.0
 
-        M_H = np.array(M_H)
+    # 剩余磁化强度 Mr
+    remanence = np.interp(0, H_values, magnetizations)
 
-        idx_H0 = np.argmin(np.abs(H_vals))
-        M_r_all.append(M_H[idx_H0])
-        A_hyst_all.append(np.trapz(np.abs(M_H), H_vals))
-
-        idx_cross = np.where(np.diff(np.sign(M_H)))[0]
-        if len(idx_cross) > 0:
-            i1 = idx_cross[0]
-            H1, H2 = H_vals[i1], H_vals[i1+1]
-            M1, M2 = M_H[i1], M_H[i1+1]
-            H_c = np.abs(H1 - M1 * (H2 - H1) / (M2 - M1))
-            H_c_all.append(H_c)
-        else:
-            H_c_all.append(np.nan)
-
-        fig = draw_hysteresis_frame(H_vals, M_H, T)
-        all_gif_frames.append(fig)
-
-        if save_path:
-            fig.save(f"{save_path}/Hysteresis_T={T:.2f}.png")
-
-    all_gif_frames[0].save(gifname, save_all=True, append_images=all_gif_frames[1:], loop=0, duration=800)
-    final_gif_frames[0].save(final_gifname, save_all=True, append_images=final_gif_frames[1:], loop=0, duration=400)
-
-    df = pd.DataFrame({
-        "Temperature": T_list,
-        "Area": A_hyst_all,
-        "Remanence": M_r_all,
-        "Coercivity": H_c_all
-    })
-
-    return df
-
-def draw_hysteresis_frame(H_vals, M_H, T, H=None):
-    import matplotlib.pyplot as plt
-    from PIL import Image
-    from io import BytesIO
-
-    fig, ax = plt.subplots()
-    ax.plot(H_vals, M_H, 'o-', linewidth=1.5)
-    title = f"Hysteresis Loop at T={T:.2f}"
-    if H is not None:
-        title += f" | H={H:.2f}"
-    ax.set_title(title)
-    ax.set_xlabel("External Field H")
-    ax.set_ylabel("Magnetization")
-    ax.axis([-1.1,1.1,-1.1,1.1])
-    ax.grid(True)
-    buf = BytesIO()
-    plt.savefig(buf, format='png', dpi=150)
-    plt.close(fig)
-    buf.seek(0)
-    return Image.open(buf)
+    return magnetizations, coercivity, remanence, lattice
