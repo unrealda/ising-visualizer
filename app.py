@@ -5,6 +5,7 @@ import shutil
 from zipfile import ZipFile
 from scipy.signal import convolve2d
 import imageio
+
 from ising_model import run_temperature_scan, run_hysteresis
 from visualizer import (
     plot_magnetization_vs_temp,
@@ -16,183 +17,117 @@ from visualizer import (
     plot_spin_ratio,
     generate_local_analysis,
     create_spin_animation,
-    plot_hysteresis_features,
-    plot_with_errorbars
+    plot_hysteresis_features
 )
 
-st.set_page_config(page_title="Ising Model (Wolff Algorithm)", layout="wide")
-st.title("\U0001F9BE Wolff 算法模拟二维伊辛模型")
+# Streamlit app layout
+st.title("2D Ising Model Visualizer")
+st.markdown("Upload your parameter settings, or run a default simulation.")
 
-# Session state初始化
-if 'session_id' not in st.session_state:
-    st.session_state['session_id'] = str(uuid.uuid4())
-    st.session_state['has_run'] = False
-    st.session_state['advanced'] = False
+# Sidebar simulation controls
+st.sidebar.header("Simulation Settings")
+sim_type = st.sidebar.selectbox("Simulation Type", ["Temperature Scan", "Hysteresis Loop"])
+spin_size = st.sidebar.slider("Spin Lattice Size (NxN)", min_value=16, max_value=128, value=32, step=16)
+num_steps = st.sidebar.number_input("Simulation Steps", min_value=100, max_value=100000, value=5000, step=1000)
+output_dir = os.path.join("outputs", str(uuid.uuid4()))
+os.makedirs(output_dir, exist_ok=True)
 
-# 缓存目录设置
-base_cache_dir = ".streamlit_cache"
-os.makedirs(base_cache_dir, exist_ok=True)
-tmpdir = os.path.join(base_cache_dir, st.session_state['session_id'])
+# Simulation execution
+if st.sidebar.button("Run Simulation"):
+    with st.spinner("Running simulation..."):
+        if sim_type == "Temperature Scan":
+            results = run_temperature_scan(spin_size, num_steps)
+            st.session_state.results = results
+            st.success(f"Temperature scan completed. {len(results)} data points generated.")
+        elif sim_type == "Hysteresis Loop":
+            results = run_hysteresis(spin_size, num_steps)
+            st.session_state.hyst_data = results
+            st.success(f"Hysteresis loop completed. {len(results)} temperature points processed.")
 
-# 侧边栏参数
-with st.sidebar:
-    st.header("参数设置")
-    L = st.number_input("格子边长 L", min_value=4, max_value=128, value=8)
-    lattice = st.selectbox("晶格类型", ["square", "triangular"])
-    mode = st.radio("模拟模式", ["快速预览", "高精度模拟"])
-    
-    if mode == "快速预览":
-        Ntrial = 30
-        nT = 5
-    else:
-        Ntrial = st.number_input("每温度试验次数", min_value=10, max_value=1000, value=100)
-        nT = st.number_input("温度步数", min_value=2, max_value=100, value=10)
-    
-    Tmin = st.number_input("最低温度 Tmin", min_value=0.1, value=1.0, step=0.1)
-    Tmax = st.number_input("最高温度 Tmax", min_value=0.1, value=3.5, step=0.1)
-    
-    st.session_state['advanced'] = st.checkbox("启用MATLAB完整分析", False)
-    if st.session_state['advanced']:
-        st.session_state['order_thresh'] = st.slider("有序域阈值", 0.5, 1.0, 0.8)
-    
-    run_button = st.button("开始模拟")
-    if st.button("清空缓存并重置"):
-        if os.path.exists(tmpdir):
-            shutil.rmtree(tmpdir)
-        st.session_state.clear()
-        st.rerun()
+# Analysis Section
+st.header("Analysis and Visualization")
 
-# 模拟函数
-@st.cache_data(show_spinner=False)
-def simulate_and_generate(L, lattice, Ntrial, Tmin, Tmax, nT, tmpdir):
-    os.makedirs(tmpdir, exist_ok=True)
-    
-    # 基础模拟
-    results = run_temperature_scan(L, lattice, Ntrial, Tmin, Tmax, nT)
+if sim_type == "Temperature Scan" and "results" in st.session_state:
+    results = st.session_state.results
     T_list = [r['T'] for r in results]
-    hyst_data = run_hysteresis(L, lattice, T_list, Ntrial=100)
+    M2_list = [r['M2'] for r in results]
+    M4_list = [r['M4'] for r in results]
+    M2_var = [r['M2_var'] for r in results]
+    M4_var = [r['M4_var'] for r in results]
+    up_ratio_list = [r['up_ratio'] for r in results]
+    down_ratio_list = [r['down_ratio'] for r in results]
+    A_hyst_list = [r.get('A_hyst', 0) for r in results]  # Default to 0 if not present
+    Hc_list = [r.get('Hc', 0) for r in results]
+    Hc_var = [r.get('Hc_var', 0) for r in results]
 
-    # 基础可视化
-    plot_magnetization_vs_temp(results, os.path.join(tmpdir, "magnetization_vs_T.png"))
-    spin_dir = os.path.join(tmpdir, "spin_snapshots")
-    hyst_dir = os.path.join(tmpdir, "hysteresis_loops")
-    final_dir = os.path.join(tmpdir, "final_hyst_frames")
-    final_hyst_plot_dir = os.path.join(tmpdir, "final_hyst_plot_frames")
-    
-    save_all_spin_snapshots(results, spin_dir)
-    save_all_hysteresis_loops(hyst_data, hyst_dir)
-    save_final_hysteresis_snapshots(hyst_data, final_dir)
-    
-    # 高级分析
-    if st.session_state['advanced']:
-        plot_binder_ratio(results, os.path.join(tmpdir, "binder_ratio.png"))
-        plot_spin_ratio(results, os.path.join(tmpdir, "spin_ratio.png"))
-        
-        error_dir = os.path.join(tmpdir, "error_analysis")
-        plot_with_errorbars(results, error_dir)
-        
-        local_order_dir = os.path.join(tmpdir, "local_order")
-        for res in results:
-            generate_local_analysis(
-                res['spins_snapshot'], 
-                res['T'],
-                st.session_state.order_thresh,
-                local_order_dir
-            )
-        
-        create_spin_animation(
-            [r['spins_snapshot'] for r in results],
-            [r['T'] for r in results],
-            os.path.join(tmpdir, "spin_animation.gif")
-        )
-        
-        plot_hysteresis_features(
-            [h['T'] for h in hyst_data],
-            {
-                'A_hyst': [h['loop_area'] for h in hyst_data],
-                'M_r': [h['M_r'] for h in hyst_data],
-                'H_c': [h['H_c'] for h in hyst_data]
-            },
-            os.path.join(tmpdir, "hysteresis_features.png")
-        )
-    
-    return results, hyst_data
+    if st.button("Plot Magnetization vs Temperature"):
+        save_path = os.path.join(output_dir, "Magnetization_vs_Temperature.png")
+        plot_magnetization_vs_temp(results, save_path)
+        st.image(save_path, caption="Magnetization and Susceptibility vs Temperature")
 
-# 运行模拟
-if run_button:
-    with st.spinner("正在运行模拟，请稍候..."):
-        results, hyst_data = simulate_and_generate(L, lattice, Ntrial, Tmin, Tmax, nT, tmpdir)
-        st.session_state['has_run'] = True
+    if st.button("Plot Binder Ratio"):
+        save_path = os.path.join(output_dir, "Binder_Ratio_vs_Temperature.png")
+        plot_binder_ratio(T_list, M2_list, M4_list, M2_var, M4_var, save_path)
+        st.image(save_path, caption="Binder Ratio vs Temperature")
 
-# 结果显示
-if st.session_state.get('has_run', False):
-    # 基础结果
-    st.subheader("磁化率与温度关系图")
-    st.image(os.path.join(tmpdir, "magnetization_vs_T.png"), use_container_width=True)
-    
-    cols = st.columns(2)
-    with cols[0]:
-        st.subheader("\u2191/\u2193 自旋分布图")
-        spin_files = sorted(os.listdir(os.path.join(tmpdir, "spin_snapshots")))
-        idx_spin = st.slider("温度帧", 0, len(spin_files)-1, 0, key="spin_slider")
-        st.image(os.path.join(tmpdir, "spin_snapshots", spin_files[idx_spin]))
-    
-    with cols[1]:
-        st.subheader("磁滞回线图")
-        hyst_files = sorted(os.listdir(os.path.join(tmpdir, "hysteresis_loops")))
-        idx_hyst = st.slider("温度帧", 0, len(hyst_files)-1, 0, key="hyst_slider")
-        st.image(os.path.join(tmpdir, "hysteresis_loops", hyst_files[idx_hyst]))
-    
-    # 高级结果
-    if st.session_state['advanced']:
-        st.divider()
-        
-        # Binder比率和自旋比例
-        cols = st.columns(2)
-        with cols[0]:
-            st.subheader("Binder比率 $U_4$")
-            st.image(os.path.join(tmpdir, "binder_ratio.png"))
-        with cols[1]:
-            st.subheader("自旋比例")
-            st.image(os.path.join(tmpdir, "spin_ratio.png"))
-        
-        # 误差分析
-        st.subheader("误差分析")
-        tabs = st.tabs(["磁化强度", "磁化率", "Binder比率"])
-        with tabs[0]:
-            st.image(os.path.join(tmpdir, "error_analysis", "Magnetization_with_errorbar.png"))
-        with tabs[1]:
-            st.image(os.path.join(tmpdir, "error_analysis", "Chi_with_errorbar.png"))
-        with tabs[2]:
-            st.image(os.path.join(tmpdir, "error_analysis", "Binder_U4_with_errorbar.png"))
-        
-        # 局部有序度
-        st.subheader("局部有序度分析")
-        order_dir = os.path.join(tmpdir, "local_order")
-        order_files = sorted([f for f in os.listdir(order_dir) if "Order" in f])
-        selected = st.select_slider("选择温度", options=order_files, 
-                                  format_func=lambda x: f"T={x.split('_')[2][1:-4]}")
-        cols = st.columns(2)
-        with cols[0]:
-            st.image(os.path.join(order_dir, selected))
-        with cols[1]:
-            st.image(os.path.join(order_dir, selected.replace("Order", "Mask")))
-        
-        # 动态演示
-        st.subheader("自旋动态演化")
-        st.image(os.path.join(tmpdir, "spin_animation.gif"))
-        
-        st.subheader("磁滞特征分析")
-        st.image(os.path.join(tmpdir, "hysteresis_features.png"))
-    
-    # 下载按钮
-    zip_path = os.path.join(tmpdir, "results.zip")
-    with ZipFile(zip_path, 'w') as zipf:
-        for root, _, files in os.walk(tmpdir):
-            for file in files:
-                if any(file.endswith(ext) for ext in ['.png', '.gif']):
-                    zipf.write(os.path.join(root, file), 
-                              os.path.relpath(os.path.join(root, file), tmpdir))
-    
-    with open(zip_path, "rb") as f:
-        st.download_button("下载所有结果", f, "ising_results.zip")
+    if st.button("Plot Spin Ratio"):
+        save_path = os.path.join(output_dir, "Spin_Ratio_vs_Temperature.png")
+        plot_spin_ratio(T_list, up_ratio_list, down_ratio_list, save_path)
+        st.image(save_path, caption="Up/Down Spin Ratio vs Temperature")
+
+    if st.button("Generate Spin Snapshots"):
+        snapshots_dir = os.path.join(output_dir, "spin_snapshots")
+        save_all_spin_snapshots(results, snapshots_dir)
+        st.success(f"Spin snapshots saved to {snapshots_dir}.")
+
+    if st.button("Generate Local Order Analysis"):
+        local_dir = os.path.join(output_dir, "local_order")
+        os.makedirs(local_dir, exist_ok=True)
+        for r in results:
+            generate_local_analysis(r['spins_snapshot'], r['T'], local_dir)
+        st.success(f"Local order analysis saved to {local_dir}.")
+
+    if st.button("Download All Snapshots as ZIP"):
+        zip_name = os.path.join(output_dir, "snapshots.zip")
+        with ZipFile(zip_name, 'w') as zipf:
+            snapshots_dir = os.path.join(output_dir, "spin_snapshots")
+            for root, _, files in os.walk(snapshots_dir):
+                for file in files:
+                    file_path = os.path.join(root, file)
+                    arcname = os.path.relpath(file_path, start=snapshots_dir)
+                    zipf.write(file_path, arcname)
+        st.download_button("Download Snapshots ZIP", data=open(zip_name, 'rb'), file_name="snapshots.zip")
+
+elif sim_type == "Hysteresis Loop" and "hyst_data" in st.session_state:
+    hyst_data = st.session_state.hyst_data
+    T_list = [h['T'] for h in hyst_data]
+    A_hyst_list = [h['A_hyst'] for h in hyst_data]
+    Hc_list = [h['Hc'] for h in hyst_data]
+    Hc_var = [h['Hc_var'] for h in hyst_data]
+
+    if st.button("Plot Hysteresis Loops"):
+        loops_dir = os.path.join(output_dir, "hysteresis_loops")
+        save_all_hysteresis_loops(hyst_data, loops_dir)
+        st.success(f"Hysteresis loops saved to {loops_dir}.")
+
+    if st.button("Plot Hysteresis Features"):
+        plot_hysteresis_features(T_list, A_hyst_list, Hc_list, Hc_var, save_path=output_dir)
+        st.image(os.path.join(output_dir, "Coercive_Field_vs_T.png"), caption="Coercive Field vs Temperature")
+        st.image(os.path.join(output_dir, "Hysteresis_Area_vs_T.png"), caption="Hysteresis Area vs Temperature")
+
+    if st.button("Save Final Hysteresis Snapshots"):
+        final_dir = os.path.join(output_dir, "final_hysteresis")
+        save_final_hysteresis_snapshots(hyst_data, final_dir)
+        st.success(f"Final hysteresis snapshots saved to {final_dir}.")
+
+# GIF Animation Section (optional, but often useful)
+if st.sidebar.checkbox("Generate Spin Animation (experimental)"):
+    if sim_type == "Temperature Scan" and "results" in st.session_state:
+        spin_matrices = [r['spins_snapshot'] for r in st.session_state.results]
+        T_list = [r['T'] for r in st.session_state.results]
+        gif_path = os.path.join(output_dir, "spin_animation.gif")
+        create_spin_animation(spin_matrices, T_list, gif_path)
+        st.image(gif_path, caption="Spin Configuration Animation")
+    else:
+        st.warning("Spin animation is only available after running a Temperature Scan.")
+
