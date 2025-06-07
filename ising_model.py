@@ -1,76 +1,130 @@
-import matplotlib.pyplot as plt
 import numpy as np
-import matplotlib.animation as animation
+from collections import deque
 
-def plot_magnetization_vs_temp(T, M, susceptibility, binder, lattice_type='Square'):
-    fig, ax = plt.subplots(1, 3, figsize=(18,5))
+def initialize_lattice(L, lattice_type='Square'):
+    """初始化自旋晶格，随机±1"""
+    lattice = np.random.choice([-1, 1], size=(L, L))
+    return lattice
 
-    # 磁化强度
-    ax[0].errorbar(T, M[:,0], yerr=M[:,1], fmt='ro-', label="磁化强度 M")
-    ax[0].set_xlabel('温度 T')
-    ax[0].set_ylabel('磁化强度 M')
-    ax[0].set_title(f'{lattice_type} 晶格磁化强度')
-    ax[0].grid(True)
+def get_neighbors(lattice, i, j, lattice_type='Square'):
+    """返回指定点邻居自旋"""
+    L = lattice.shape[0]
+    neighbors = []
+    if lattice_type == 'Square':
+        neighbors.extend([
+            lattice[(i+1)%L, j],
+            lattice[(i-1)%L, j],
+            lattice[i, (j+1)%L],
+            lattice[i, (j-1)%L]
+        ])
+    elif lattice_type == 'Triangular':
+        neighbors.extend([
+            lattice[(i+1)%L, j],
+            lattice[(i-1)%L, j],
+            lattice[i, (j+1)%L],
+            lattice[i, (j-1)%L],
+            lattice[(i+1)%L, (j-1)%L],
+            lattice[(i-1)%L, (j+1)%L]
+        ])
+    return neighbors
 
-    # 磁化率
-    ax[1].errorbar(T, susceptibility[:,0], yerr=susceptibility[:,1], fmt='bo-', label="磁化率 χ")
-    ax[1].set_xlabel('温度 T')
-    ax[1].set_ylabel('磁化率 χ')
-    ax[1].set_title(f'{lattice_type} 晶格磁化率')
-    ax[1].grid(True)
+def delta_energy(lattice, i, j, H=0.0, lattice_type='Square', J=1):
+    """计算翻转某点自旋引起的能量变化"""
+    spin = lattice[i, j]
+    neighbors = get_neighbors(lattice, i, j, lattice_type)
+    dE = 2 * spin * (J * sum(neighbors) + H)
+    return dE
 
-    # Binder比率
-    ax[2].errorbar(T, binder[:,0], yerr=binder[:,1], fmt='go-', label="Binder比率 U4")
-    ax[2].set_xlabel('温度 T')
-    ax[2].set_ylabel('Binder比率 U4')
-    ax[2].set_title(f'{lattice_type} 晶格Binder比率')
-    ax[2].grid(True)
+def monte_carlo_step(lattice, T, H=0.0, lattice_type='Square', J=1):
+    """单步蒙特卡洛 Metropolis 算法"""
+    L = lattice.shape[0]
+    for _ in range(L*L):
+        i = np.random.randint(0, L)
+        j = np.random.randint(0, L)
+        dE = delta_energy(lattice, i, j, H, lattice_type, J)
+        if dE <= 0 or np.random.rand() < np.exp(-dE / T):
+            lattice[i, j] *= -1
+    return lattice
 
-    plt.tight_layout()
-    return fig
+def simulate_ising(L, T, n_steps, H=0.0, lattice_type='Square', J=1):
+    """完整模拟，返回磁化率、磁化强度、Binder比率及每步磁化数据"""
+    lattice = initialize_lattice(L, lattice_type)
+    M_list = []
+    for _ in range(n_steps):
+        lattice = monte_carlo_step(lattice, T, H, lattice_type, J)
+        M_list.append(np.sum(lattice))
+    M_array = np.array(M_list)
+    norm_factor = L*L
 
-def plot_cluster_distribution(sizes):
-    fig, ax = plt.subplots(figsize=(8,5))
-    counts, bins, patches = ax.hist(sizes, bins=30, color='purple', alpha=0.7)
-    ax.set_xlabel("簇大小")
-    ax.set_ylabel("频数")
-    ax.set_title("簇大小分布直方图")
-    ax.grid(True)
-    plt.tight_layout()
-    return fig
+    M_avg = np.mean(np.abs(M_array)) / norm_factor
+    susceptibility = (np.var(M_array) / (T * norm_factor)) if T > 0 else 0
+    binder_cumulant = 1 - np.mean(M_array**4) / (3 * (np.mean(M_array**2)**2)) if np.mean(M_array**2) != 0 else 0
 
-def plot_hysteresis(H, M, coercivity, remanence):
-    fig, ax = plt.subplots(figsize=(8,5))
-    ax.plot(H, M, 'r-o', label="磁化强度 M")
-    ax.axvline(coercivity, color='b', linestyle='--', label=f'矫顽力 Hc={coercivity:.3f}')
-    ax.axhline(remanence, color='g', linestyle='--', label=f'剩余磁化 Mr={remanence:.3f}')
-    ax.set_xlabel('外磁场 H')
-    ax.set_ylabel('磁化强度 M')
-    ax.set_title('磁滞回线')
-    ax.legend()
-    ax.grid(True)
-    plt.tight_layout()
-    return fig
+    return lattice, M_avg, susceptibility, binder_cumulant, M_array / norm_factor
 
-def animate_hysteresis(H_values, M_values, lattice_states, pause=200):
-    """生成磁滞回线动画，红蓝箭头表示自旋方向"""
-    fig, ax = plt.subplots(figsize=(6,6))
-    L = lattice_states[0].shape[0]
+def cluster_sizes(lattice, lattice_type='Square'):
+    """计算晶格中自旋簇大小分布"""
+    L = lattice.shape[0]
+    visited = np.zeros_like(lattice, dtype=bool)
+    sizes = []
 
-    def update(frame):
-        ax.clear()
-        ax.set_title(f'Hysteresis Loop: H={H_values[frame]:.2f}, M={M_values[frame]:.3f}')
-        ax.set_xticks([])
-        ax.set_yticks([])
-        lattice = lattice_states[frame]
-        for i in range(L):
-            for j in range(L):
-                if lattice[i,j] == 1:
-                    ax.arrow(j, L-1-i, 0, 0.3, head_width=0.2, head_length=0.2, fc='red', ec='red')
-                else:
-                    ax.arrow(j, L-1-i, 0, -0.3, head_width=0.2, head_length=0.2, fc='blue', ec='blue')
-        ax.set_xlim(-0.5, L-0.5)
-        ax.set_ylim(-0.5, L-0.5)
+    def neighbors_coords(i, j):
+        if lattice_type == 'Square':
+            return [((i+1)%L, j), ((i-1)%L, j), (i, (j+1)%L), (i, (j-1)%L)]
+        elif lattice_type == 'Triangular':
+            return [((i+1)%L, j), ((i-1)%L, j), (i, (j+1)%L), (i, (j-1)%L),
+                    ((i+1)%L, (j-1)%L), ((i-1)%L, (j+1)%L)]
+        else:
+            return []
 
-    ani = animation.FuncAnimation(fig, update, frames=len(H_values), interval=pause)
-    return ani
+    for i in range(L):
+        for j in range(L):
+            if not visited[i, j]:
+                spin_val = lattice[i, j]
+                size = 0
+                queue = deque()
+                queue.append((i, j))
+                visited[i, j] = True
+                while queue:
+                    x, y = queue.popleft()
+                    size += 1
+                    for nx, ny in neighbors_coords(x, y):
+                        if not visited[nx, ny] and lattice[nx, ny] == spin_val:
+                            visited[nx, ny] = True
+                            queue.append((nx, ny))
+                sizes.append(size)
+    return sizes
+
+def hysteresis_loop(L, T, H_values, n_eq_steps, n_meas_steps, lattice_type='Square', J=1):
+    """
+    计算磁滞回线，返回磁化强度数组，矫顽力，剩余磁化强度及最终晶格状态
+    """
+    lattice = initialize_lattice(L, lattice_type)
+    magnetizations = []
+    for H in H_values:
+        # 平衡
+        for _ in range(n_eq_steps):
+            lattice = monte_carlo_step(lattice, T, H, lattice_type, J)
+        # 测量
+        M_meas = []
+        for _ in range(n_meas_steps):
+            lattice = monte_carlo_step(lattice, T, H, lattice_type, J)
+            M_meas.append(np.sum(lattice)/(L*L))
+        magnetizations.append(np.mean(M_meas))
+    magnetizations = np.array(magnetizations)
+
+    # 矫顽力(Hc)估算: 找磁化强度过零点的外场值
+    cross_indices = np.where(np.diff(np.sign(magnetizations)))[0]
+    Hc_vals = []
+    for idx in cross_indices:
+        h1, h2 = H_values[idx], H_values[idx+1]
+        m1, m2 = magnetizations[idx], magnetizations[idx+1]
+        # 线性插值
+        h_cross = h1 - m1*(h2 - h1)/(m2 - m1)
+        Hc_vals.append(h_cross)
+    coercivity = Hc_vals[0] if Hc_vals else 0.0
+
+    # 剩余磁化强度 Mr
+    remanence = np.interp(0, H_values, magnetizations)
+
+    return magnetizations, coercivity, remanence, lattice
