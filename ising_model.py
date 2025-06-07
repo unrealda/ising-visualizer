@@ -76,15 +76,26 @@ def run_temperature_scan(L, lattice_type, Ntrial, Tmin, Tmax, nT):
         Mvar = np.var(mags / N)
         chi = (N / T) * (M2 - M**2)
         
+        ### Binder 比率计算及其方差
+        U4_samples = 1 - (M4_samples / N**4) / (3 * (M2_samples / N**2)**2)
+        U4_mean = np.mean(U4_samples)
+        U4_var = np.var(U4_samples)
+
         up_ratio = np.sum(spins > 0) / N
         local_order = convolve2d(spins.reshape(L,L), np.ones((3,3)), 'same') / 9
 
         results.append({
             'T': T, 'M': M, 'M2': M2, 'M4': M4, 'Mvar': Mvar,
-            'chi': chi, 'N': N, 'Var_M2': np.var(M2_samples/N**2),
-            'Var_M4': np.var(M4_samples/N**4), 'up_ratio': up_ratio,
-            'down_ratio': 1-up_ratio, 'spins_snapshot': spins.reshape(L,L),
-            'mean_cluster_size': np.mean(clusters), 'local_order': local_order
+            'chi': chi, 'N': N, 
+            'Var_M2': np.var(M2_samples/N**2),
+            'Var_M4': np.var(M4_samples/N**4),
+            'Binder_U4': U4_mean,
+            'Var_U4': U4_var,
+            'up_ratio': up_ratio,
+            'down_ratio': 1-up_ratio,
+            'spins_snapshot': spins.reshape(L,L),
+            'mean_cluster_size': np.mean(clusters),
+            'local_order': local_order
         })
     return results
 
@@ -103,7 +114,7 @@ def calculate_hysteresis_features(H_vals, M_vals):
     
     return {'M_r': M_r, 'A_hyst': A_hyst, 'H_c': H_c}
 
-def run_hysteresis(L, lattice_type, T_list, Ntrial=100):
+def run_hysteresis(L, lattice_type, T_list, Ntrial=100, n_repeat=5):
     neighbors = build_neighbors(L, lattice_type)
     N = L * L
     hyst_data = []
@@ -127,10 +138,22 @@ def run_hysteresis(L, lattice_type, T_list, Ntrial=100):
             if abs(T - max(T_list)) < 1e-8:
                 frames.append(spins.copy().reshape(L,L))
 
+        ### 计算矫顽力多次平均（Hc_mean和Hc_var）
+        Hc_samples = []
+        for _ in range(n_repeat):
+            features_tmp = calculate_hysteresis_features(H_vals, M_H)
+            if not np.isnan(features_tmp['H_c']):
+                Hc_samples.append(features_tmp['H_c'])
+        Hc_mean = np.mean(Hc_samples) if Hc_samples else np.nan
+        Hc_var = np.var(Hc_samples) if Hc_samples else np.nan
+
         features = calculate_hysteresis_features(H_vals, M_H)
         hyst_data.append({
             'T': T, 'H_vals': H_vals, 'M_vals': M_H,
-            'loop_area': features['A_hyst'], 'M_r': features['M_r'],
-            'H_c': features['H_c'], 'final_frames': frames if frames else None
+            'loop_area': features['A_hyst'],
+            'M_r': features['M_r'],
+            'H_c': Hc_mean,
+            'Var_Hc': Hc_var,
+            'final_frames': frames if frames else None
         })
     return hyst_data
