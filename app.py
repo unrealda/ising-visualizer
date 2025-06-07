@@ -1,134 +1,108 @@
 import streamlit as st
-import uuid
-import os
-import shutil
-from zipfile import ZipFile
-from ising_model import wolff_algorithm, simulate, hysteresis_simulation, draw_hysteresis_frame
-from visualizer import (
-    plot_magnetization_vs_temp,
-    save_all_spin_snapshots,
-    save_all_hysteresis_loops,
-    save_final_hysteresis_snapshots,
-    plot_hysteresis_loop
-)
+import numpy as np
+from ising_model import simulate_ising, cluster_sizes, hysteresis_loop, monte_carlo_step, initialize_lattice
+from visualizer import plot_magnetization_vs_temp, plot_cluster_distribution, plot_hysteresis, animate_hysteresis
+import matplotlib.pyplot as plt
+import tempfile
+import matplotlib.animation as animation
 
-st.set_page_config(page_title="Ising Model (Wolff Algorithm)", layout="wide")
-st.title("\U0001F9BE Wolff 算法模拟二维伊辛模型")
+st.set_page_config(layout="wide")
+st.title("高级 Ising 模型蒙特卡洛模拟与磁滞回线动画")
 
-if 'session_id' not in st.session_state:
-    st.session_state['session_id'] = str(uuid.uuid4())
-    st.session_state['has_run'] = False
+L = st.sidebar.number_input("晶格边长 L", min_value=10, max_value=50, value=20, step=1)
+lattice_type = st.sidebar.selectbox("晶格类型", ["Square", "Triangular"])
 
-base_cache_dir = ".streamlit_cache"
-os.makedirs(base_cache_dir, exist_ok=True)
-tmpdir = os.path.join(base_cache_dir, st.session_state['session_id'])
+Tmin = st.sidebar.slider("最低温度 Tmin", 0.1, 5.0, 1.0)
+Tmax = st.sidebar.slider("最高温度 Tmax", 0.1, 5.0, 3.0)
+nT = st.sidebar.number_input("温度点数 nT", min_value=5, max_value=30, value=10)
+n_steps = st.sidebar.number_input("每温度蒙特卡洛步数", min_value=100, max_value=1000, value=300)
 
-with st.sidebar:
-    st.header("参数设置")
-    L = st.number_input("格子边长 L", min_value=4, max_value=128, value=8)
-    lattice = st.selectbox("晶格类型", ["square", "triangular"])
-    mode = st.radio("模拟模式", ["快速预览", "高精度模拟"])
-    if mode == "快速预览":
-        Ntrial = 30
-        nT = 5
-    else:
-        Ntrial = st.number_input("每温度试验次数", min_value=10, max_value=1000, value=100)
-        nT = st.number_input("温度步数", min_value=2, max_value=100, value=10)
-    Tmin = st.number_input("最低温度 Tmin", min_value=0.1, value=1.0, step=0.1)
-    Tmax = st.number_input("最高温度 Tmax", min_value=0.1, value=3.5, step=0.1)
-    run_button = st.button("开始模拟")
+st.header("磁化强度、磁化率与Binder比率计算")
 
-    if st.button("清空缓存并重置"):
-        if os.path.exists(tmpdir):
-            shutil.rmtree(tmpdir)
-        st.session_state.clear()
-        st.success("缓存已清除，请手动刷新页面或重新开始模拟。")
+if st.button("开始计算"):
+    T_vals = np.linspace(Tmin, Tmax, nT)
 
-@st.cache_data(show_spinner=False)
-def simulate_and_generate(L, lattice, Ntrial, Tmin, Tmax, nT, tmpdir):
-    os.makedirs(tmpdir, exist_ok=True)
+    M_vals = []
+    chi_vals = []
+    binder_vals = []
 
-    # 运行温度扫描模拟，返回结果列表（每项包含T, M, Mvar, Chi, spin_config等）
-    results = run_temperature_scan(L, lattice, Ntrial, Tmin, Tmax, nT)
-    T_list = [r['T'] for r in results]
+    # 误差计算: 多次独立模拟
+    runs = 3
+    M_all = []
+    chi_all = []
+    binder_all = []
 
-    # 运行磁滞回线模拟，输入温度列表，返回对应数据（含H_vals, M_vals, spin_frames）
-    hyst_data = run_hysteresis(L, lattice, T_list, Ntrial=100)
+    progress_bar = st.progress(0)
+    for idx, T in enumerate(T_vals):
+        M_runs = []
+        chi_runs = []
+        binder_runs = []
+        for _ in range(runs):
+            _, M_avg, susceptibility, binder_cumulant, _ = simulate_ising(L, T, n_steps, 0.0, lattice_type)
+            M_runs.append(M_avg)
+            chi_runs.append(susceptibility)
+            binder_runs.append(binder_cumulant)
+        M_all.append(M_runs)
+        chi_all.append(chi_runs)
+        binder_all.append(binder_runs)
+        progress_bar.progress((idx+1)/len(T_vals))
 
-    # 生成并保存磁化强度-温度曲线图
-    plot_magnetization_vs_temp(results, save_path=os.path.join(tmpdir, "magnetization_vs_T.png"))
+    # 计算平均和标准差
+    M_arr = np.array(M_all)
+    chi_arr = np.array(chi_all)
+    binder_arr = np.array(binder_all)
 
-    # 保存所有温度的自旋箭头图
-    spin_dir = os.path.join(tmpdir, "spin_snapshots")
-    save_all_spin_snapshots(results, spin_dir)
+    M_mean = np.mean(M_arr, axis=1)
+    M_std = np.std(M_arr, axis=1)
 
-    # 保存所有温度的磁滞回线图
-    hyst_dir = os.path.join(tmpdir, "hysteresis_loops")
-    save_all_hysteresis_loops(hyst_data, hyst_dir)
+    chi_mean = np.mean(chi_arr, axis=1)
+    chi_std = np.std(chi_arr, axis=1)
 
-    # 保存最终温度磁滞过程自旋图逐帧
-    final_dir = os.path.join(tmpdir, "final_hyst_frames")
-    save_final_hysteresis_snapshots(hyst_data, final_dir)
+    binder_mean = np.mean(binder_arr, axis=1)
+    binder_std = np.std(binder_arr, axis=1)
 
-    # 保存最终温度磁滞过程进展回线图逐帧
-    final_hyst_plot_dir = os.path.join(tmpdir, "final_hyst_plot_frames")
-    os.makedirs(final_hyst_plot_dir, exist_ok=True)
-    final = hyst_data[-1]
-    H_vals = final['H_vals']
-    M_vals = final['M_vals']
-    for i in range(1, len(H_vals) + 1):
-        plot_hysteresis_loop(H_vals[:i], M_vals[:i], final['T'], save_path=os.path.join(final_hyst_plot_dir, f'frame_{i:03d}.png'))
+    # 传入绘图函数，带误差条
+    fig = plot_magnetization_vs_temp(
+        T_vals,
+        np.column_stack((M_mean, M_std)),
+        np.column_stack((chi_mean, chi_std)),
+        np.column_stack((binder_mean, binder_std)),
+        lattice_type
+    )
+    st.pyplot(fig)
 
-    return results, hyst_data
+st.header("簇大小分布")
 
-if run_button:
-    with st.spinner("正在运行模拟，请稍候..."):
-        results, hyst_data = simulate_and_generate(L, lattice, Ntrial, Tmin, Tmax, nT, tmpdir)
-        st.session_state['has_run'] = True
+T_cluster = st.slider("簇大小分布温度 T", Tmin, Tmax, (Tmin+Tmax)/2)
+if st.button("计算簇大小分布"):
+    lattice, _, _, _, _ = simulate_ising(L, T_cluster, n_steps, 0.0, lattice_type)
+    sizes = cluster_sizes(lattice, lattice_type)
+    fig = plot_cluster_distribution(sizes)
+    st.pyplot(fig)
 
-if st.session_state.get('has_run', False):
-    # 磁化率曲线
-    st.subheader("磁化率与温度关系图")
-    st.image(os.path.join(tmpdir, "magnetization_vs_T.png"), use_container_width=True)
+st.header("磁滞回线模拟及动画")
 
-    # 自旋箭头图（温度滑动预览）
-    st.subheader("\u2191/\u2193 自旋分布图（温度滑动预览）")
-    spin_dir = os.path.join(tmpdir, "spin_snapshots")
-    spin_files = sorted(os.listdir(spin_dir))
-    idx_spin = st.slider("选择温度帧 (箭头图)", 0, len(spin_files) - 1, 0)
-    st.image(os.path.join(spin_dir, spin_files[idx_spin]), caption=spin_files[idx_spin])
+T_hys = st.slider("磁滞回线温度 T", Tmin, Tmax, (Tmin+Tmax)/2)
+n_eq = st.number_input("每场平衡步数", min_value=50, max_value=500, value=200)
+n_meas = st.number_input("每场测量步数", min_value=50, max_value=500, value=200)
 
-    # 磁滞图（温度滑动预览）
-    st.subheader("磁滞回线图（温度滑动预览）")
-    hyst_dir = os.path.join(tmpdir, "hysteresis_loops")
-    hyst_files = sorted(os.listdir(hyst_dir))
-    idx_hyst = st.slider("选择温度帧 (磁滞图)", 0, len(hyst_files) - 1, 0)
-    st.image(os.path.join(hyst_dir, hyst_files[idx_hyst]), caption=hyst_files[idx_hyst])
+if st.button("生成磁滞回线并动画"):
+    H_values = np.concatenate((np.linspace(-2, 2, 40), np.linspace(2, -2, 40)))
 
-    # 最终温度磁滞过程（自旋图 + 回线图双图展示）
-    st.subheader("最终温度下磁滞过程形成图")
-    final_dir = os.path.join(tmpdir, "final_hyst_frames")
-    final_hyst_plot_dir = os.path.join(tmpdir, "final_hyst_plot_frames")
-    final_spin_files = sorted(os.listdir(final_dir))
-    final_plot_files = sorted(os.listdir(final_hyst_plot_dir))
-    idx_final = st.slider("选择帧 (最终温度磁滞形成)", 0, len(final_spin_files) - 1, 0)
+    magnetizations, coercivity, remanence, _ = hysteresis_loop(L, T_hys, H_values, n_eq, n_meas, lattice_type)
 
-    col1, col2 = st.columns(2)
-    with col1:
-        st.image(os.path.join(final_dir, final_spin_files[idx_final]), caption="自旋图帧")
-    with col2:
-        st.image(os.path.join(final_hyst_plot_dir, final_plot_files[idx_final]), caption="磁滞回线帧")
+    # 生成动画用的晶格快照
+    lattice_states = []
+    lattice_tmp = initialize_lattice(L, lattice_type)
+    for H in H_values:
+        for _ in range(n_eq):
+            lattice_tmp = monte_carlo_step(lattice_tmp, T_hys, H, lattice_type)
+        lattice_states.append(lattice_tmp.copy())
 
-    # 下载所有结果图片（ZIP）
-    zip_path = os.path.join(tmpdir, "ising_results.zip")
-    if not os.path.exists(zip_path):
-        with ZipFile(zip_path, 'w') as zipf:
-            for root, _, files in os.walk(tmpdir):
-                for file in files:
-                    if file.endswith(".png"):
-                        abs_path = os.path.join(root, file)
-                        rel_path = os.path.relpath(abs_path, tmpdir)
-                        zipf.write(abs_path, arcname=rel_path)
+    fig_hyst = plot_hysteresis(H_values, magnetizations, coercivity, remanence)
+    st.pyplot(fig_hyst)
 
-    with open(zip_path, "rb") as f:
-        st.download_button("\U0001F4E5 下载所有图像 (ZIP)", f, file_name="ising_results.zip")
+    ani = animate_hysteresis(H_values, magnetizations, lattice_states)
+    tmpfile = tempfile.NamedTemporaryFile(delete=False, suffix='.gif')
+    ani.save(tmpfile.name, writer='imagemagick')
+    st.image(tmpfile.name)
