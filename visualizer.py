@@ -1,6 +1,8 @@
 import matplotlib.pyplot as plt
 import numpy as np
 import os
+from scipy.signal import convolve2d
+import imageio
 
 def plot_magnetization_vs_temp(results, save_path=None):
     T_list = [r['T'] for r in results]
@@ -77,18 +79,15 @@ def save_final_hysteresis_snapshots(hyst_data, output_dir):
         plot_spin_snapshot(frame, T=last['T'], save_path=fname)
 
 def generate_local_analysis(spin_matrix, T, save_dir):
-    """移植MATLAB的局部有序度三图生成"""
     kernel = np.ones((3,3))
     local_sum = convolve2d(spin_matrix, kernel, mode='same', boundary='wrap')
     local_order = local_sum / 9
-    # 热图
     plt.figure(figsize=(5,5))
     plt.imshow(local_order, cmap='jet', vmin=-1, vmax=1)
     plt.colorbar()
     plt.title(f"Local Order at T={T:.2f}")
     plt.savefig(os.path.join(save_dir, f'Local_Order_T{T:.3f}.png'))
     plt.close()
-    # 高有序区域掩膜
     threshold = 0.8
     mask = np.abs(local_order) >= threshold
     plt.figure(figsize=(5,5))
@@ -96,42 +95,68 @@ def generate_local_analysis(spin_matrix, T, save_dir):
     plt.title(f"Ordered Domains (|M|≥{threshold})")
     plt.savefig(os.path.join(save_dir, f'Local_Mask_T{T:.3f}.png'))
     plt.close()
-    # 返回平均局部有序度 (用于曲线绘制)
     return np.mean(np.abs(local_order))
 
-def plot_hysteresis_features(T_list, features, save_path):
-    """移植MATLAB的plot_hysteresis_features函数"""
-    # 数据平滑处理 (与MATLAB的smooth函数一致)
-    from scipy.interpolate import make_interp_spline
-    T_smooth = np.linspace(min(T_list), max(T_list), 100)
-    
-    # 回线面积
-    A_smooth = make_interp_spline(T_list, features['A_hyst'])(T_smooth)
+def plot_binder_ratio(T_list, M2_list, M4_list, M2_var, M4_var, save_path=None):
+    binder_ratio = 1 - np.array(M4_list) / (3 * np.array(M2_list)**2)
+    error = np.sqrt(
+        (np.array(M4_var)/(3*np.array(M2_list)**2))**2 +
+        (2*np.array(M4_list)*np.array(M2_var)/(3*np.array(M2_list)**3))**2
+    )
     plt.figure(figsize=(8,5))
-    plt.plot(T_list, features['A_hyst'], 'bo-', label='Raw')
-    plt.plot(T_smooth, A_smooth, 'r-', lw=2, label='Smoothed')
+    plt.errorbar(T_list, binder_ratio, yerr=error, fmt='o-', color='purple', capsize=4)
     plt.xlabel('Temperature')
-    plt.ylabel('Hysteresis Area')
+    plt.ylabel('Binder Ratio')
+    plt.title('Binder Ratio vs Temperature')
+    plt.grid(True)
+    if save_path:
+        plt.savefig(save_path, bbox_inches='tight')
+    plt.close()
+
+def plot_spin_ratio(T_list, up_ratio_list, down_ratio_list, save_path=None):
+    plt.figure(figsize=(8,5))
+    plt.plot(T_list, up_ratio_list, 'r^-', label='Up Spins')
+    plt.plot(T_list, down_ratio_list, 'bv-', label='Down Spins')
+    plt.xlabel('Temperature')
+    plt.ylabel('Spin Ratio')
+    plt.title('Up/Down Spin Ratio vs Temperature')
     plt.legend()
     plt.grid(True)
-    plt.savefig(os.path.join(save_path, 'Hysteresis_Area_vs_T.png'))
+    if save_path:
+        plt.savefig(save_path, bbox_inches='tight')
     plt.close()
-    
-    # 剩余磁化 (同样处理其他两个图)
-    # ...类似实现...
+
+def plot_hysteresis_features(T_list, A_hyst_list, Hc_list, Hc_var, save_path=None):
+    plt.figure(figsize=(8,5))
+    plt.errorbar(T_list, Hc_list, yerr=np.sqrt(Hc_var), fmt='o-', color='green', capsize=4, label='Coercive Field Hc')
+    plt.xlabel('Temperature')
+    plt.ylabel('Coercive Field')
+    plt.title('Coercive Field vs Temperature')
+    plt.grid(True)
+    plt.legend()
+    if save_path:
+        plt.savefig(os.path.join(save_path, 'Coercive_Field_vs_T.png'), bbox_inches='tight')
+    plt.close()
+
+    plt.figure(figsize=(8,5))
+    plt.plot(T_list, A_hyst_list, 'o-', color='orange', label='Hysteresis Area')
+    plt.xlabel('Temperature')
+    plt.ylabel('Hysteresis Area')
+    plt.title('Hysteresis Area vs Temperature')
+    plt.grid(True)
+    plt.legend()
+    if save_path:
+        plt.savefig(os.path.join(save_path, 'Hysteresis_Area_vs_T.png'), bbox_inches='tight')
+    plt.close()
 
 def create_spin_animation(spin_matrices, T_list, save_path):
-    """移植MATLAB的make_arrow_animation_1逻辑"""
     fig, ax = plt.subplots(figsize=(8,8))
     plt.axis('off')
-    
     frames = []
     for i, (spins, T) in enumerate(zip(spin_matrices, T_list)):
         ax.clear()
         up_count = np.sum(spins > 0)
         down_count = spins.size - up_count
-        
-        # 绘制箭头 (与MATLAB完全一致)
         for y in range(spins.shape[0]):
             for x in range(spins.shape[1]):
                 if spins[y,x] > 0:
@@ -140,18 +165,12 @@ def create_spin_animation(spin_matrices, T_list, save_path):
                 else:
                     ax.text(x, y, r'$\downarrow$', ha='center', va='center',
                            color='b', fontsize=14)
-        
-        # 添加统计信息 (位置计算与MATLAB一致)
         ax.text(0.1, 1.05, f'T = {T:.3f}', transform=ax.transAxes,
                 fontsize=13, fontweight='bold')
         ax.text(0.5, 1.05, f'↑: {up_count}', transform=ax.transAxes,
                 color='r', fontsize=13, fontweight='bold')
         ax.text(0.7, 1.05, f'↓: {down_count}', transform=ax.transAxes,
                 color='b', fontsize=13, fontweight='bold')
-        
-        # 生成帧
         fig.canvas.draw()
         frames.append(np.array(fig.canvas.renderer.buffer_rgba()))
-    
-    # 保存GIF (参数与MATLAB一致)
-    imageio.mimsave(save_path, frames, duration=300, loop=0)
+    imageio.mimsave(save_path, frames, duration=0.3, loop=0)
