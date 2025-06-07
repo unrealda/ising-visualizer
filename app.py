@@ -3,7 +3,7 @@ import uuid
 import os
 import shutil
 from zipfile import ZipFile
-from ising_model import wolff_algorithm, run_hysteresis, hysteresis_simulation, draw_hysteresis_frame
+from ising_model import wolff_algorithm, simulate, hysteresis_simulation, draw_hysteresis_frame
 from visualizer import (
     plot_magnetization_vs_temp,
     save_all_spin_snapshots,
