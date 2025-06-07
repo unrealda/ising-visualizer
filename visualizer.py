@@ -1,30 +1,24 @@
 import matplotlib.pyplot as plt
 import numpy as np
 import os
-
 def plot_magnetization_vs_temp(results, save_path=None):
     T_list = [r['T'] for r in results]
     M = [r['M'] for r in results]
     Mvar = [r['Mvar'] for r in results]
     Chi = [r['chi'] for r in results]
-
     plt.figure(figsize=(8, 5))
     ax1 = plt.gca()
     ax2 = ax1.twinx()
-
     ax1.errorbar(T_list, M, yerr=np.sqrt(Mvar), fmt='x--', color='blue', label='Magnetization')
     ax2.plot(T_list, Chi, 'o-r', label='Susceptibility ($\chi$)')
-
     ax1.set_xlabel('Temperature')
     ax1.set_ylabel('Magnetization', color='blue')
     ax2.set_ylabel('Susceptibility $\chi$', color='red')
     ax1.grid(True)
-
     chi_peak = max(Chi)
     idx_peak = Chi.index(chi_peak)
     ax2.plot(T_list[idx_peak], chi_peak, 'kp', markerfacecolor='green')
     ax2.text(T_list[idx_peak] + 0.1, chi_peak, f'Peak at T = {T_list[idx_peak]:.2f}', color='green')
-
     plt.title("Magnetization and Susceptibility vs Temperature")
     fig = plt.gcf()
     if save_path:
